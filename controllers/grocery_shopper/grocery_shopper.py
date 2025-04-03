@@ -92,7 +92,7 @@ gripper_status="closed"
 # === Toggles ===
 use_mapping = False
 use_vision = False #this might cook ur pc right now
-use_manipulation = True
+use_manipulation = False
 use_planning = True
 use_odometry = True
 
