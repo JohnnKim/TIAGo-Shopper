@@ -5,7 +5,11 @@
 from controller import Robot
 import math
 import numpy as np
-
+from localization import main as odometry
+from mapping import main as mapping
+from vision import main as vision
+from manipulation import main as manipulation
+from planning import main as planning
 #Initialization
 print("=== Initializing Grocery Shopper...")
 #Consts
@@ -58,19 +62,11 @@ gps.enable(timestep)
 compass = robot.getDevice("compass")
 compass.enable(timestep)
 
-# TODO: Implement a complementary filter to fuse GPS and compass data for more accurate localization
 
 # Enable LiDAR
 lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
-
-# TODO: Process LIDAR data to update occupancy grid dynamically
-
-# Map Initialization
-map = np.zeros((360, 360))  # Initialize empty grid map to represent free space and obstacles
-
-# TODO: Store and update occupancy map dynamically with incoming sensor data
 
 # Enable display
 display = robot.getDevice("display")
@@ -85,58 +81,28 @@ vR = 0
 
 prev_time = robot.getTime()
 
-# Implemented April 2 - John
-# Function to get heading from compass
-def get_heading():
-    compass_data = compass.getValues()
-    heading = math.atan2(compass_data[0], compass_data[1])
-    return heading
-
-# Implemented April 2 - John
-# Function to update odometry from wheel velocities
-def update_odometry(vL, vR, dt):
-    global pose_x, pose_y, pose_theta
-    v = (vL + vR) / 2.0
-    w = (vR - vL) / AXLE_LENGTH
-    pose_theta += w * dt
-    pose_x += v * dt * math.cos(pose_theta)
-    pose_y += v * dt * math.sin(pose_theta)
-
 lidar_sensor_readings = [] # List to hold sensor readings
 lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_ANGLE_BINS)
 lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
 
-# Odometry drift correction (to be expanded)
-# TODO: Refine odometry calculations with wheel encoder data for better accuracy
-# TODO: Implement sensor fusion to correct odometry drift
-
-# ------------------------------------------------------------------
-# Helper Functions
 
 gripper_status="closed"
 
 # Main Loop
 while robot.step(timestep) != -1:
-    # Implemented April 2 - John
-    # Compute time step
-    current_time = robot.getTime()
-    dt = current_time - prev_time
-    prev_time = current_time
+
+
+
+    mapping(robot, lidar, display)
+    # Odometry
+    odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
+
+    vision(robot, camera, display)
+
+    manipulation(robot, display)
+
+    planning(robot, display)
     
-    # Read GPS data
-    gps_position = gps.getValues()
-    
-    # Read Compass data
-    heading = get_heading()
-    
-    # Update odometry
-    update_odometry(vL, vR, dt)
-    
-    # Print localization info for debugging
-    print(f"GPS: {gps_position}, Heading: {heading}, Odometry: (x: {pose_x}, y: {pose_y}, theta: {pose_theta})")
-    
-    # TODO: Store GPS and odometry data for debugging
-    # TODO: Validate the map using test cases to make sure accuracy is good
     
     # Setting wheel speeds
     robot_parts["wheel_left_joint"].setVelocity(vL)
