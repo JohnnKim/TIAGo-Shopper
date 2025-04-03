@@ -31,8 +31,6 @@ part_names = ("head_2_joint", "head_1_joint", "torso_lift_joint", "arm_1_joint",
               "arm_6_joint",  "arm_7_joint",  "wheel_left_joint", "wheel_right_joint",
               "gripper_left_finger_joint","gripper_right_finger_joint")
 
-# 
-
 # All motors except the wheels are controlled by position control. The wheels
 # are controlled by a velocity controller. We therefore set their position to infinite.
 target_pos = (0.0, 0.0, 0.35, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf',0.045,0.045)
@@ -60,21 +58,19 @@ gps.enable(timestep)
 compass = robot.getDevice("compass")
 compass.enable(timestep)
 
-# TODO: Read GPS data and convert to local reference frame
-# TODO: Read compass data and determine heading direction
+# TODO: Implement a complementary filter to fuse GPS and compass data for more accurate localization
 
 # Enable LiDAR
 lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
 
-# TODO: Collect LIDAR data to identify obstacles and free space
+# TODO: Process LIDAR data to update occupancy grid dynamically
 
 # Map Initialization
-map = None  # This will hold the occupancy grid representation
+map = np.zeros((360, 360))  # Initialize empty grid map to represent free space and obstacles
 
-# TODO: Convert LIDAR data into an occupancy grid map
-# TODO: Store and update the map dynamically as new sensor data arrives
+# TODO: Store and update occupancy map dynamically with incoming sensor data
 
 # Enable display
 display = robot.getDevice("display")
@@ -88,9 +84,6 @@ vL = 0
 vR = 0
 
 prev_time = robot.getTime()
-
-# Kalman filter variables (for sensor fusion, if needed later)
-# TODO: Implement Kalman filter if improved accuracy is required
 
 # Implemented April 2 - John
 # Function to get heading from compass
@@ -113,11 +106,9 @@ lidar_sensor_readings = [] # List to hold sensor readings
 lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_ANGLE_BINS)
 lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
 
-map = None
-
-# TODO: Implement odometry calculations using wheel encoder data
-# TODO: Integrate inertial sensor (if available) to improve localization accuracy
-# TODO: Apply noise filtering (Kalman Filter or Complementary Filter)
+# Odometry drift correction (to be expanded)
+# TODO: Refine odometry calculations with wheel encoder data for better accuracy
+# TODO: Implement sensor fusion to correct odometry drift
 
 # ------------------------------------------------------------------
 # Helper Functions
@@ -141,18 +132,16 @@ while robot.step(timestep) != -1:
     # Update odometry
     update_odometry(vL, vR, dt)
     
-    # TODO: Validate the map using test cases to make sure accuracy is good
-    
     # Print localization info for debugging
     print(f"GPS: {gps_position}, Heading: {heading}, Odometry: (x: {pose_x}, y: {pose_y}, theta: {pose_theta})")
     
-    # TODO: Implement sensor fusion to correct odometry drift
     # TODO: Store GPS and odometry data for debugging
+    # TODO: Validate the map using test cases to make sure accuracy is good
     
     # Setting wheel speeds
     robot_parts["wheel_left_joint"].setVelocity(vL)
     robot_parts["wheel_right_joint"].setVelocity(vR)
-    
+
     if(gripper_status=="open"):
         # Close gripper, note that this takes multiple time steps...
         robot_parts["gripper_left_finger_joint"].setPosition(0)
