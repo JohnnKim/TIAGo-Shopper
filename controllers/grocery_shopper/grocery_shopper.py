@@ -88,35 +88,32 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 gripper_status="closed"
 
+
+# === Toggles ===
+use_mapping = False
+use_vision = False #this might cook ur pc right now
+use_manipulation = True
+use_planning = True
+use_odometry = True
+
 # Main Loop
 while robot.step(timestep) != -1:
 
+    if use_mapping:
+        mapping(robot, lidar, display)
 
+    if use_vision:
+        vL, vR = vision(robot, camera, display)
 
-    mapping(robot, lidar, display)
-    # Odometry
-    odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
+    if use_manipulation:
+        manipulation(robot, display, robot_parts, gripper_status, vL, vR, right_gripper_enc, left_gripper_enc)
 
-    vision(robot, camera, display)
-
-    manipulation(robot, display)
-
-    planning(robot, display)
+    if use_planning:
+        planning(robot, display)
     
+    if use_odometry:
+        odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
     
-    # Setting wheel speeds
+    # set wheel speeds
     robot_parts["wheel_left_joint"].setVelocity(vL)
     robot_parts["wheel_right_joint"].setVelocity(vR)
-
-    if(gripper_status=="open"):
-        # Close gripper, note that this takes multiple time steps...
-        robot_parts["gripper_left_finger_joint"].setPosition(0)
-        robot_parts["gripper_right_finger_joint"].setPosition(0)
-        if right_gripper_enc.getValue()<=0.005:
-            gripper_status="closed"
-    else:
-        # Open gripper
-        robot_parts["gripper_left_finger_joint"].setPosition(0.045)
-        robot_parts["gripper_right_finger_joint"].setPosition(0.045)
-        if left_gripper_enc.getValue()>=0.044:
-            gripper_status="open"
