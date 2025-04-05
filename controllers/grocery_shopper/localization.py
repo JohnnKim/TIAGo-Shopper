@@ -1,6 +1,8 @@
 import numpy as np
 import math
-map = np.zeros((360, 360))# Map Initialization (#TODO check size)
+
+# Map Initialization
+map = np.zeros((360, 360))  # TODO: Validate map size based on environment scale
 
 
 """ 
@@ -16,17 +18,13 @@ def main(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, p
 
     # Implemented April 2 - John
     # Function to update odometry from wheel velocities
-    def update(vL, vR, dt, pose_x, pose_y, pose_theta):
+    def update_odometry(vL, vR, dt, pose_x, pose_y, pose_theta):
         v = (vL + vR) / 2.0
         w = (vR - vL) / AXLE_LENGTH
         pose_theta += w * dt
         pose_x += v * dt * math.cos(pose_theta)
         pose_y += v * dt * math.sin(pose_theta)
-
-
-    # Odometry drift correction (to be expanded)
-    # TODO: Refine odometry calculations with wheel encoder data for better accuracy
-    # TODO: Implement sensor fusion to correct odometry drift
+        return pose_x, pose_y, pose_theta
 
     # ------------------------------------------------------------------
     # Helper Functions
@@ -37,8 +35,6 @@ def main(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, p
     dt = current_time - prev_time
     prev_time = current_time
 
-
-    
     # Read GPS data
     gps_position = gps.getValues()
     
@@ -46,16 +42,16 @@ def main(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, p
     heading = get_heading()
     
     # Update odometry
-    update(vL, vR, dt, pose_x, pose_y, pose_theta)
+    pose_x, pose_y, pose_theta = update_odometry(vL, vR, dt, pose_x, pose_y, pose_theta)
     
     # Print localization info for debugging
-    print(f"GPS: {gps_position}, Heading: {heading}, Odometry: (x: {pose_x}, y: {pose_y}, theta: {pose_theta})")
+    print(f"GPS: {gps_position}, Heading: {heading:.2f}, Odometry: (x: {pose_x:.2f}, y: {pose_y:.2f}, θ: {pose_theta:.2f})")
     
     # TODO: Store GPS and odometry data for debugging
-    # TODO: Validate the map using test cases to make sure accuracy is good
+    # TODO: Validate map updates with test cases
+    # TODO: Later - implement Kalman Filter for fusion
 
-
-
+    return pose_x, pose_y, pose_theta, prev_time
 
 export = {
     "main": main,
