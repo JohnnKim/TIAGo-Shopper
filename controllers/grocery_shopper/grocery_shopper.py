@@ -37,7 +37,7 @@ part_names = ("head_2_joint", "head_1_joint", "torso_lift_joint", "arm_1_joint",
 
 # All motors except the wheels are controlled by position control. The wheels
 # are controlled by a velocity controller. We therefore set their position to infinite.
-target_pos = (0.0, 0.0, 0.35, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf',0.045,0.045)
+target_pos = (0.0, 0.0, 0.2, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf',0.045,0.045)
 
 robot_parts={}
 for i, part_name in enumerate(part_names):
@@ -93,8 +93,8 @@ gripper_status="closed"
 use_mapping = False
 use_vision = False #this might cook ur pc right now
 use_manipulation = False
-use_planning = True
-use_odometry = True
+use_planning = False
+use_odometry = False
 
 # Main Loop
 while robot.step(timestep) != -1:
@@ -102,11 +102,12 @@ while robot.step(timestep) != -1:
     if use_mapping:
         mapping(robot, lidar, display)
 
+
     if use_vision:
-        vL, vR = vision(robot, camera, display)
+        vision(robot, camera, display)
 
     if use_manipulation:
-        manipulation(robot, display, robot_parts, gripper_status, vL, vR, right_gripper_enc, left_gripper_enc)
+        manipulation(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gripper_enc, timestep, 0,0,0)
 
     if use_planning:
         planning(robot, display)
