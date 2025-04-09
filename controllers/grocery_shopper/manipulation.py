@@ -176,65 +176,60 @@ def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gr
             robot_parts["wheel_right_joint"].setVelocity(0)
             key = robot.getKeyboard().getKey()
             
-            position_updated = False # Flag to track if arm position needs update
-
-            if key != -1: 
-                print(key)
-
-
             if key == 65:  # A key - Move Left
-                print("a - Left")
                 current_position[1] += 0.02
-                position_updated = True
             elif key == 68: # D key - Move Right
-                print("d - Right")
                 current_position[1] -= 0.02
-                position_updated = True
             elif key == 87: # W key - Move Forward
-                print("w - Forward")
                 current_position[0] += 0.02 
-                position_updated = True
             elif key == 83: # S key - Move Backward
-                print("s - Backward")
                 current_position[0] -= 0.02
-                position_updated = True
             elif key == 81: # Q key - Move Up
-                print("q - Up")
                 current_position[2] += 0.02 
-                position_updated = True
             elif key == 69: # E key - Move Down
-                print("e - Down")
                 current_position[2] -= 0.02
-                position_updated = True
             elif key == 71: # G key - Exit manual mode (and close gripper)
                 closeGrip()
-                looping = False
             elif key == 72: # H key - Open Gripper
-                print("h - Open Gripper")
                 openGrip()
             elif key == 82: # R key - Move Up
-                print("r - Move Up")
                 moveUp()
             elif key == 70: # F key - Move Down
-                print("f - Move Down")
                 moveDown()
+            elif key == 67: # C key - Exit manual mode
+                looping = False
+            elif key == 66: # B key - Move Backward
+                current_position = [0.5, 0.021, 0.68] #hard reset to origin
 
             # Only calculate IK and move arm if position was changed
-            if position_updated:
-                print(">>> Position updated, calculating IK and moving arm...")
-                # Calculate IK for this position
-                ikResults = calculateIk(current_position, orient=True, orientation_mode="Y")
-                        
-                # Move the arm to the target position
-                moveArmToTarget(ikResults)
-            else:
-                print(">>> Position NOT updated, skipping IK/arm move.")
 
+            # Calculate IK for this position
+            ikResults = calculateIk(current_position, orient=True, orientation_mode="Y")
+                        
+            # Move the arm to the target position
+            moveArmToTarget(ikResults)
+
+            # Check if the arm is at the target position
+            print("current_position: ", current_position)
 
     #x, y, z = abs(x), abs(y), abs(z)
-
-
+    
     manual_mode(robot, robot_parts, timestep)
+
+    # test moving the arm to a fixed position
+    #the robot at this point is at GPS [-2.75167,1.17914, 0.0920304]
+    # current_position = [0.92, -0.139, 0.16]
+    # arm_at_target = False
+    # while not arm_at_target and robot.step(timestep) != -1:
+    #     robot_parts["wheel_left_joint"].setVelocity(0)
+    #     robot_parts["wheel_right_joint"].setVelocity(0)
+    #     ikResults = calculateIk(current_position, orient=True, orientation_mode="Y")
+    #     moveArmToTarget(ikResults)
+    #     if checkArmAtPosition(ikResults):
+    #         print("Arm at target")
+    #         arm_at_target = True
+
+
     return
     arm_at_target = False
     while robot.step(timestep) != -1 and not arm_at_target:

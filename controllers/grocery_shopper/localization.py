@@ -43,7 +43,7 @@ def main(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, p
             pose_y = 0.9 * pose_y + 0.1 * gps_position[2]  # Using z from GPS as y in 2D
     
     # Update map with current position (converting from world to map coordinates)
-    update_map(map, pose_x, pose_y)
+    #update_map(map, pose_x, pose_y)
     
     # Display data for debugging
     print(f"GPS: ({gps_position[0]:.2f}, {gps_position[2]:.2f}), Heading: {compass_heading:.2f}, "

@@ -68,6 +68,13 @@ lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
 
+
+# We are using a GPS and compass to disentangle mapping and localization
+gps = robot.getDevice("gps")
+gps.enable(timestep)
+compass = robot.getDevice("compass")
+compass.enable(timestep)
+
 # Enable display
 display = robot.getDevice("display")
 
@@ -76,8 +83,8 @@ pose_x     = 0
 pose_y     = 0
 pose_theta = 0
 
-vL = 0
-vR = 0
+vL = 5
+vR = 5
 
 prev_time = robot.getTime()
 
@@ -86,21 +93,23 @@ lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_
 lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
 
 
+map_array = np.zeros((360, 360))
+
 gripper_status="closed"
 
 
 # === Toggles ===
-use_mapping = False
+use_mapping = True
 use_vision = False #this might cook ur pc right now
 use_manipulation = False
 use_planning = False
-use_odometry = False
+use_odometry = True
 
 # Main Loop
 while robot.step(timestep) != -1:
 
     if use_mapping:
-        mapping(robot, lidar, display)
+        mapping(robot, lidar, gps, compass, display, map_array, timestep)
 
 
     if use_vision:
