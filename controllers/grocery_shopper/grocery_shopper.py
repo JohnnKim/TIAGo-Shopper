@@ -78,6 +78,9 @@ compass.enable(timestep)
 # Enable display
 display = robot.getDevice("display")
 
+keyboard = robot.getKeyboard()
+keyboard.enable(timestep)
+
 # Odometry
 pose_x     = 0
 pose_y     = 0
@@ -93,7 +96,7 @@ lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_
 lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
 
 
-map_array = np.zeros((360, 360))
+map_array = np.zeros((483,900))
 
 gripper_status="closed"
 
@@ -107,9 +110,9 @@ use_odometry = True
 
 # Main Loop
 while robot.step(timestep) != -1:
-
+    # thing is 16mx30m (or maybe 16.1x30)
     if use_mapping:
-        mapping(robot, lidar, gps, compass, display, map_array, timestep)
+        mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets)
 
 
     if use_vision:

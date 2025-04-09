@@ -1,10 +1,6 @@
 import numpy as np
 import math
 
-# Map Initialization
-map = np.zeros((360, 360))  # Map dimensions
-MAP_RESOLUTION = 0.05  # Meters per pixel
-
 """
 Entry point for odometry
 """
