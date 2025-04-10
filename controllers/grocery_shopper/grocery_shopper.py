@@ -112,7 +112,7 @@ use_odometry = True
 while robot.step(timestep) != -1:
     # thing is 16mx30m (or maybe 16.1x30)
     if use_mapping:
-        mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets)
+        mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
 
 
     if use_vision:
