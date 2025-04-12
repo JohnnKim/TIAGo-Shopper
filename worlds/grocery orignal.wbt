@@ -1185,8 +1185,8 @@ TiagoSteel {
       }
     }
     Display {
-      width 360
-      height 360
+      width 900
+      height 483
     }
   ]
   lidarSlot [

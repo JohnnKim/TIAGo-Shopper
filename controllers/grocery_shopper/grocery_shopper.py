@@ -102,21 +102,20 @@ gripper_status="closed"
 
 
 # === Toggles ===
-use_mapping = True
-use_vision = False #this might cook ur pc right now
+use_mapping = False
+use_vision = True #this might cook ur pc right now
 use_manipulation = False
 use_planning = False
-use_odometry = True
+use_odometry = False
 
 # Main Loop
 while robot.step(timestep) != -1:
-    # thing is 16mx30m (or maybe 16.1x30)
+    # thing is 16.1x30
     if use_mapping:
         mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
 
-
     if use_vision:
-        vision(robot, camera, display)
+        vision(robot, camera, display, keyboard, timestep, robot_parts)
 
     if use_manipulation:
         manipulation(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gripper_enc, timestep, 0,0,0)

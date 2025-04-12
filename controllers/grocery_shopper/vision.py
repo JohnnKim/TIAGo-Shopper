@@ -8,6 +8,8 @@ All functions are written by Mitch Siegel
 import cv2
 import numpy as np
 import math
+import os
+from ultralytics import YOLO
 
 KNOWN_CUBE_HEIGHT_M = 0.07
 KNOWN_CUBE_WIDTH_M = 0.07
@@ -26,24 +28,16 @@ COLOR_RANGES_HSV = {
     'bright_green': { #green cubes
         'lower1': np.array([50, 120, 120]), 'upper1': np.array([75, 255, 255])
     },
-    'white': {
+    'white': { #generally not used but hey just in case
         'lower1': np.array([0, 0, 200]), 'upper1': np.array([180, 30, 255])
     }
 }
 
 IMAGE_SCALE_FACTOR = 100
-FOCAL_LENGTH_PIXELS = 77.05111391211969
-
-# Camera offsets relative to the robot base frame (derived from lab5_joint.py)
-# These might need tuning for the specific robot setup
-CAMERA_OFFSET_X = 0# Corresponds to -Z_cam contribution
-CAMERA_OFFSET_Y = 0  # Corresponds to -X_cam contribution
-CAMERA_OFFSET_Z = 0.97 # Corresponds to Y_cam contribution (0.97 + 0.2 from lab5)
-
 
 class DetectedObject:
-    """Represents a detected object with its properties and distance."""
-    def __init__(self, x, y, w, h, cx, cy, area, color):
+    """Represents a detected object with its properties."""
+    def __init__(self, x, y, w, h, cx, cy, area, color, confidence=1):
         self.x = x  # Pixel coord (top-left)
         self.y = y  # Pixel coord (top-left)
         self.w = w  # Pixel width
@@ -52,72 +46,8 @@ class DetectedObject:
         self.cy = cy # Pixel coord (center)
         self.area = area
         self.color = color
-        self.distance = None # Z_cam (distance along camera forward axis)
+        self.confidence = confidence
         self.is_target = False
-        # Robot frame coordinates (relative to base link or IK origin)
-        self.X_robot = None
-        self.Y_robot = None
-        self.Z_robot = None
-
-    def update_distance(self, focal_length_px=FOCAL_LENGTH_PIXELS, known_height_m=KNOWN_CUBE_HEIGHT_M):
-        """Calculates and updates the distance to the object (Z_cam)."""
-        if self.h is None or self.h <= 0:
-            self.distance = None
-            return
-
-        if focal_length_px is None or focal_length_px <= 0:
-            print("Distance Calc Error: Invalid FOCAL_LENGTH_PIXELS.")
-            self.distance = None
-            return
-
-        try:
-            scaled_focal_length = focal_length_px
-
-            self.distance = (known_height_m * scaled_focal_length) / self.h
-            
-        except ZeroDivisionError:
-            print(f"Distance Calc Warning: Division by zero for object at ({self.cx}, {self.cy}).")
-            self.distance = None
-
-    def update_robot_coords(self, image_width, image_height, focal_length_px=FOCAL_LENGTH_PIXELS):
-        """Calculates the object's position in the robot's base coordinate frame."""
-        if self.distance is None or self.distance <= 0:
-            self.X_robot, self.Y_robot, self.Z_robot = None, None, None
-            return
-
-        if focal_length_px is None or focal_length_px <= 0:
-             print("Robot Coord Calc Error: Invalid FOCAL_LENGTH_PIXELS.")
-             self.X_robot, self.Y_robot, self.Z_robot = None, None, None
-             return
-
-        # Calculate image center based on *original* dimensions
-        center_x_pixel = image_width / 2.0
-        center_y_pixel = image_height / 2.0
-
-        # Calculate camera frame coordinates based on pinhole model
-        Z_cam = self.distance # Forward distance
-        X_cam = (self.cx - center_x_pixel) * Z_cam / focal_length_px # Right displacement
-        Y_cam = -(self.cy - center_y_pixel) * Z_cam / focal_length_px # Down displacement if cy > center_y
-
-
-        self.X_robot = Z_cam + CAMERA_OFFSET_X
-        self.Y_robot = -X_cam + CAMERA_OFFSET_Y
-        self.Z_robot = Y_cam + CAMERA_OFFSET_Z
-
-        # print(f"Obj {self.color}: Z_cam={Z_cam:.2f}, X_cam={X_cam:.2f}, Y_cam={Y_cam:.2f} -> Robot X={self.X_robot:.2f}, Y={self.Y_robot:.2f}, Z={self.Z_robot:.2f} (Proposed)")
-
-    def __repr__(self):
-        robot_coords = f"Robot(X={self.X_robot:.2f}, Y={self.Y_robot:.2f}, Z={self.Z_robot:.2f})" if self.X_robot is not None else "Robot(None)"
-        return (f"DetectedObject(color='{self.color}', center_px=({self.cx},{self.cy}), "
-                f"area={self.area}, distance={self.distance:.2f}m, {robot_coords}, target={self.is_target})")
-
-# While this function is not used, it is here for reference
-def get_focal_length_pixels(camera):
-    fov_rad = camera.getFov()
-    image_width_px = camera.getWidth()
-    if fov_rad <= 0 or image_width_px <= 0: return None
-    return (image_width_px / 2.0) / math.tan(fov_rad / 2.0)
-
 
 def detect_objects_by_color(bgr_image, target_color, min_contour_area=50):
     """
@@ -155,9 +85,7 @@ def detect_objects_by_color(bgr_image, target_color, min_contour_area=50):
     # Find contours
     contours, _ = cv2.findContours(full_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Filter contours and gather object info
     detected_objects = []
-    # print(f"Found {len(contours)} initial contours for '{target_color}'.") # Less verbose logging
     for contour in contours:
         area = cv2.contourArea(contour)
         if area > min_contour_area:
@@ -167,14 +95,16 @@ def detect_objects_by_color(bgr_image, target_color, min_contour_area=50):
             obj = DetectedObject(
                 x=x, y=y, w=w, h=h,
                 cx=center_x, cy=center_y,
-                area=area, color=target_color
+                area=area, color=target_color, confidence=1
             )
             detected_objects.append(obj)
 
     return detected_objects, full_mask
 
-def draw_detected_objects(detected_objects, detected_image):
+def draw_detected_objects(detected_objects, original_image):
     """Draws bounding boxes and info for detected objects on the image."""
+    # copy of the original image
+    drawing_image = original_image.copy()
     color_map = {
         'red': (0, 0, 255),      # BGR Red
         'yellow': (0, 255, 255), # BGR Yellow
@@ -195,65 +125,250 @@ def draw_detected_objects(detected_objects, detected_image):
 
         draw_color = color_map.get(obj.color, default_color)
         # Draw rectangle
-        cv2.rectangle(detected_image, (draw_x, draw_y), (draw_x + draw_w, draw_y + draw_h), draw_color, 2)
+        cv2.rectangle(drawing_image, (draw_x, draw_y), (draw_x + draw_w, draw_y + draw_h), draw_color, 2)
 
-        # Put text for center pixel coordinates and distance
-        info_text1 = f"({draw_cx},{draw_cy})"
-        if obj.distance is not None:
-             info_text1 += f" {obj.distance:.2f}m"
-        cv2.putText(detected_image, info_text1, (draw_x, draw_y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, draw_color, 1)
-
-        # Put text for robot coordinates if available
-        if obj.X_robot is not None:
-            info_text2 = f"R({obj.X_robot:.2f},{obj.Y_robot:.2f},{obj.Z_robot:.2f})"
-            cv2.putText(detected_image, info_text2, (draw_x, draw_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, draw_color, 1)
-
+        # Put text for center pixel coordinates and confidence
+        info_text1 = f"({draw_cx},{draw_cy},{obj.confidence:.2f})"
+        cv2.putText(drawing_image, info_text1, (draw_x, draw_y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.3, draw_color, 1)
 
         # Indicate target object
         if obj.is_target:
-             cv2.putText(detected_image, "TARGET", (draw_cx - 30, draw_cy - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+             cv2.putText(drawing_image, "TARGET", (draw_cx - 30, draw_cy - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
 
+
+    return drawing_image
 
 def show_image(image, window_name="Detected Objects"):
-    cv2.imshow(window_name, image)
-    cv2.waitKey(1)
+    try:
+        cv2.imshow(window_name, image)
+        cv2.waitKey(1)
+    except Exception as e:
+        print(f"Error showing image: {e}")
 
 
-def main(robot, camera, display):
-    
+frame_count = 0
+img_save_path = None # Global vars for paths
+lbl_save_path = None
+previous_key = -1 # Store previous key state
+
+def collect_yolo_training_data(robot, camera, keyboard, timestep, robot_parts, save_dir='dataset'):
+    """
+    Performs one step of YOLO data collection for Webots:
+    Captures image, detects objects, displays, and saves if 'S' is pressed.
+    """
+    global frame_count, img_save_path, lbl_save_path, previous_key # Add previous_key
+
+    # --- Initialization (run once) ---
+    if img_save_path is None: # Use None check for first run
+        img_save_path = os.path.join(save_dir, 'images', 'train')
+        lbl_save_path = os.path.join(save_dir, 'labels', 'train')
+        os.makedirs(img_save_path, exist_ok=True)
+        os.makedirs(lbl_save_path, exist_ok=True)
+        print("Starting YOLO data collection mode.")
+        print(f"Saving images to: {img_save_path}")
+        print(f"Saving labels to: {lbl_save_path}")
+        print("Press 'S' (Shift+s) to save the current frame and labels.")
+        print("Press 'Q' (Shift+q) to signal quit (controller needs manual stop).")
+    # --------------------------------
+
+    while robot.step(timestep) != -1:
+        robot_parts["wheel_left_joint"].setVelocity(0)
+        robot_parts["wheel_right_joint"].setVelocity(0)
+
+        # 1. Capture image
+        image_bytes = camera.getImage()
+        orig_height = camera.getHeight()
+        orig_width = camera.getWidth()
+        if not image_bytes:
+            print("No image received")
+            previous_key = keyboard.getKey() # Update key even if no image
+            continue # Skip rest of loop if no image
+        image_np = np.frombuffer(image_bytes, dtype=np.uint8).reshape((orig_height, orig_width, 4))
+        bgr_image_orig = cv2.cvtColor(image_np, cv2.COLOR_BGRA2BGR)
+
+        # 2. Detect objects for labeling
+        min_area_threshold = 10
+        yellow_objects, _ = detect_objects_by_color(bgr_image_orig, 'yellow', min_area_threshold)
+        green_objects, _ = detect_objects_by_color(bgr_image_orig, 'bright_green', min_area_threshold)
+
+        # 3. Prepare YOLO labels
+        yolo_labels = []
+        all_detected_objects_for_drawing = []
+
+        for obj in yellow_objects:
+            x_center = (obj.x + obj.w / 2) / orig_width
+            y_center = (obj.y + obj.h / 2) / orig_height
+            width_norm = obj.w / orig_width
+            height_norm = obj.h / orig_height
+            yolo_labels.append(f"0 {x_center:.6f} {y_center:.6f} {width_norm:.6f} {height_norm:.6f}")
+            all_detected_objects_for_drawing.append(obj)
+
+        for obj in green_objects:
+            x_center = (obj.x + obj.w / 2) / orig_width
+            y_center = (obj.y + obj.h / 2) / orig_height
+            width_norm = obj.w / orig_width
+            height_norm = obj.h / orig_height
+            yolo_labels.append(f"1 {x_center:.6f} {y_center:.6f} {width_norm:.6f} {height_norm:.6f}")
+            all_detected_objects_for_drawing.append(obj)
+
+        # 4. Prepare display image
+        display_image = bgr_image_orig.copy()
+        draw_detected_objects(all_detected_objects_for_drawing, display_image)
+        #cv2.putText(display_image, f"Saved: {frame_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+        # 5. Show image
+        cv2.imshow("YOLO Data Collection (S=save, Q=quit)", display_image)
+        # Process GUI events - crucial for imshow to work in a loop
+        cv2.waitKey(1)
+
+        # 6. Handle keyboard input for this timestep
+        current_key = keyboard.getKey()
+
+        # Check for 'S' key press *edge* (pressed now, but not before)
+        if current_key == ord('S') and previous_key != ord('S'):
+            # Construct filenames
+            img_filename = f"frame_{frame_count:04d}.jpg"
+            lbl_filename = f"frame_{frame_count:04d}.txt"
+            img_filepath = os.path.join(img_save_path, img_filename)
+            lbl_filepath = os.path.join(lbl_save_path, lbl_filename)
+
+            # Save the ORIGINAL image
+            cv2.imwrite(img_filepath, bgr_image_orig)
+
+            # Save the labels
+            with open(lbl_filepath, 'w') as f:
+                for line in yolo_labels:
+                    f.write(line + '\n')
+
+            print(f"Saved: {img_filename} and {lbl_filename} (Total: {frame_count + 1})")
+            frame_count += 1
+
+        # Update previous key state for the next iteration
+        previous_key = current_key
+
+frame_count = 0
+def main(robot, camera, display, keyboard, timestep, robot_parts):
+    # Flags 
+    training_mode = False
+    use_ml = True
+    global frame_count
+    frame_count += 1
+
+    if training_mode:
+        collect_yolo_training_data(robot, camera, keyboard, timestep, robot_parts, save_dir='dataset')
+        return
+
     # Get original image
     image_bytes = camera.getImage()
     orig_height = camera.getHeight()
     orig_width = camera.getWidth()
     image_np = np.frombuffer(image_bytes, dtype=np.uint8).reshape((orig_height, orig_width, 4))
-    bgr_image_orig = cv2.cvtColor(image_np, cv2.COLOR_BGRA2BGR)
-    
-    # Detect objects in original image
-    colors_to_detect = ['yellow', 'bright_green']
-    min_area_threshold = 10
+    bgr_image_orig = cv2.cvtColor(image_np, cv2.COLOR_BGRA2BGR) #here is where the image is converted to BGR for opencv
+
     all_detected_objects = []
+
+    if use_ml:
+        if frame_count % 1 == 0: #if we need to skip frames, we can do so here
+            detected_objects, printed_image = detect_objects_yolo(bgr_image_orig)
+            all_detected_objects = detected_objects
+            display_image = draw_detected_objects(all_detected_objects, bgr_image_orig)
+            show_image(display_image, window_name="YOLO Detections")
+        else:
+            return
+
+    if not use_ml:
+        colors_to_detect = ['yellow', 'bright_green']
     
-    for color in colors_to_detect:
-        detected_objects, _ = detect_objects_by_color(bgr_image_orig, color, min_area_threshold)
-        if detected_objects:
-            all_detected_objects.extend(detected_objects)
+        for color in colors_to_detect:
+            detected_objects, _ = detect_objects_by_color(bgr_image_orig, color, 10)
+            if detected_objects:
+                all_detected_objects.extend(detected_objects)
+                display_image = draw_detected_objects(all_detected_objects, bgr_image_orig)
+                show_image(display_image, window_name="Color Detections")
     
-    # Calculate distances and robot coordinates using original image dimensions
+    return (None, None, None)
 
-    focal_length_to_use = FOCAL_LENGTH_PIXELS # Default
+def detect_objects_yolo(bgr_image,conf_threshold=0.5):
+    all_detected_objects = []
+    annotated_image = bgr_image.copy() # Start with a copy of the original
+
+    # Load the YOLO model
+    model = YOLO("./ML/model.pt")
+
+    try:
+        # Perform inference
+        # Consider adding device='mps' or device='cuda' if needed and available
+        results = model(bgr_image, verbose=False) # verbose=False reduces console spam
+
+        # Process results if any detections exist
+        if results and results[0].boxes is not None and len(results[0].boxes) > 0:
+            # Use YOLO's built-in plot function to draw boxes on the image copy
+            annotated_image = results[0].plot()
+
+            # Extract results
+            detected_boxes = results[0].boxes.xyxy.cpu().numpy() # Bounding boxes (x1, y1, x2, y2)
+            confidences = results[0].boxes.conf.cpu().numpy()   # Confidence scores
+            class_ids = results[0].boxes.cls.cpu().numpy()     # Class IDs (0 or 1)
+            class_names_map = results[0].names                # Dict {0: 'yellow_cube', 1: 'green_cube'}
+
+            for i in range(len(detected_boxes)):
+                conf = confidences[i]
+                # Filter by confidence threshold
+                if conf >= conf_threshold:
+                    box = detected_boxes[i]
+                    cls_id = int(class_ids[i])
+                    # Get the specific class name (e.g., 'yellow_cube')
+                    yolo_class_name = class_names_map.get(cls_id, f'unknown_{cls_id}')
+
+                    # --- Convert YOLO result to DetectedObject ---
+                    # Map YOLO class name back to the color names used in DetectedObject
+                    if yolo_class_name == 'yellow_cube':
+                        color_name = 'yellow'
+                    elif yolo_class_name == 'green_cube':
+                        # Ensure this matches the color name used in DetectedObject/draw_detected_objects
+                        color_name = 'bright_green'
+                    else:
+                        color_name = yolo_class_name # Fallback
+
+                    # Calculate bounding box properties
+                    x1, y1, x2, y2 = box
+                    w = x2 - x1
+                    h = y2 - y1
+                    # Ensure width and height are positive
+                    if w <= 0 or h <= 0:
+                        continue
+                    x = x1
+                    y = y1
+                    cx = x + w / 2.0
+                    cy = y + h / 2.0
+                    area = w * h
+
+                    # Create DetectedObject instance
+                    obj = DetectedObject(
+                        x=x, y=y, w=w, h=h,
+                        cx=cx, cy=cy,
+                        area=area, color=color_name, confidence=conf # Use mapped color name
+                    )
+
+                    all_detected_objects.append(obj)
+                    # ---------------------------------------------
+
+    except Exception as e:
+        print(f"Error during YOLO detection or processing: {e}")
+        # Return empty list and the initial image copy on error
+        return [], bgr_image.copy()
+
+    # Return the list of DetectedObject instances and the annotated image
+    return all_detected_objects, annotated_image
 
 
-    for obj in all_detected_objects:
-        # Pass calculated focal length
-        obj.update_distance(focal_length_px=focal_length_to_use)
-        # Calculate robot coords using original dimensions and calculated focal length
-        obj.update_robot_coords(orig_width, orig_height, focal_length_px=focal_length_to_use)
 
+
+def scale_image(image, all_detected_objects, scale_percent):
     # Now scale the image for display purposes only
-    scale_percent = IMAGE_SCALE_FACTOR
-    new_width = int(bgr_image_orig.shape[1] * scale_percent / 100)
-    new_height = int(bgr_image_orig.shape[0] * scale_percent / 100)
-    display_image = cv2.resize(bgr_image_orig, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+    new_width = int(image.shape[1] * scale_percent / 100)
+    new_height = int(image.shape[0] * scale_percent / 100)
+    display_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
     
     # Scale object pixel coordinates just for drawing on the scaled display image
 
@@ -266,66 +381,5 @@ def main(robot, camera, display):
         obj.h = int(obj.h * scale_percent / 100)
         obj.cx = int(obj.cx * scale_percent / 100)
         obj.cy = int(obj.cy * scale_percent / 100)
-        # Note: obj.distance, obj.X_robot etc. remain unscaled (real-world values)
 
-
-    # Now you can access obj.X_robot, obj.Y_robot, obj.Z_robot for control logic
-    # Example: Find the closest yellow cube in robot coordinates
-    closest_yellow = None
-    min_dist_sq = float('inf')
-    for obj in all_detected_objects:
-        if obj.color == 'yellow' and obj.X_robot is not None:
-             # Use X_robot (forward distance) or Euclidean distance in robot frame
-             dist_sq = obj.X_robot**2 + obj.Y_robot**2 + obj.Z_robot**2
-             if dist_sq < min_dist_sq:
-                 min_dist_sq = dist_sq
-                 closest_yellow = obj
-
-    if closest_yellow is not None:
-        closest_yellow.is_target = True
-
-    # Draw detections (using the now-scaled pixel coords) on the scaled display image
-    draw_detected_objects(all_detected_objects, display_image)
-    show_image(display_image, window_name="Shelf Image with Detections")
-    if closest_yellow is not None:
-        return (closest_yellow.X_robot, closest_yellow.Y_robot, closest_yellow.Z_robot) # Or some default value if no target found
-    else:
-        return (None, None, None)
-
-def calculate_camera_coords(cx, cy, h, real_height_m, focal_length_px, image_width, image_height):
-    """
-    Calculates camera frame coordinates (Z_cam, X_cam, Y_cam) from object pixel info.
-
-    Assumes Camera Frame: +Z Forward, +X Right, +Y Up
-    """
-    if h is None or h <= 0:
-        print("Coord Calc Warning: Invalid pixel height (h).")
-        return None, None, None
-    if real_height_m is None or real_height_m <= 0:
-         print("Coord Calc Warning: Invalid real_height_m.")
-         return None, None, None
-    if focal_length_px is None or focal_length_px <= 0:
-         print("Coord Calc Warning: Invalid focal_length_px.")
-         return None, None, None
-
-    # Calculate distance (Forward, Z_cam)
-    try:
-        Z_cam = (real_height_m * focal_length_px) / h
-    except ZeroDivisionError:
-        print("Coord Calc Warning: Division by zero calculating Z_cam.")
-        return None, None, None
-
-    # Calculate image center
-    center_x_pixel = image_width / 2.0
-    center_y_pixel = image_height / 2.0
-
-    # Calculate lateral displacement (Right, X_cam)
-    X_cam = (cx - center_x_pixel) * Z_cam / focal_length_px
-
-    # Calculate vertical displacement (Up, Y_cam)
-    # Note the sign convention used in your original code: -(cy - center) results in +Y Up
-    Y_cam = -(cy - center_y_pixel) * Z_cam / focal_length_px
-
-    return Z_cam, X_cam, Y_cam
-
-
+    return display_image, all_detected_objects
