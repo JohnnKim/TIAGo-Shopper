@@ -110,6 +110,18 @@ use_odometry = False
 
 # Main Loop
 while robot.step(timestep) != -1:
+    # try:
+    #     waypoints = np.load("path.npy")
+    #     print(f"Loaded {len(waypoints)} waypoints from planning.np")
+    # except Exception as e:
+    #     print(f"Error loading path.npy: {e}")
+    #     waypoints = []
+
+    # # Placeholder: Print or process waypoints (No path-following yet)
+    # if waypoints:
+    #     print("Waypoints loaded, ready for path following.")
+    # else:
+    #     print("No waypoints found to follow.")
     # thing is 16.1x30
     if use_mapping:
         mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
