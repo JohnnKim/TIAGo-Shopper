@@ -291,3 +291,7 @@ def _map_to_world(point):
     wy = -((y) / 30.0)
     return (wx, wy)
 
+def main(map, start, end):
+    path = path_planner(map, start, end)
+    return path
+
