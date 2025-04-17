@@ -13,7 +13,10 @@ import math
 import matplotlib.pyplot as plt
 import ikpy.chain
 import ikpy.utils.plot as plot_utils #plotting utils, install with " pip install 'ikpy[plot]' "
-
+import pygame # Added for controller input
+import sys # Added for controller input error handling
+# Remove global prev_position if not used
+# global prev_position
 # ---- HELPER FUNCTIONS ----
 
 def get_gripper_status(right_gripper_enc, left_gripper_enc):
@@ -164,53 +167,147 @@ def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gr
         robot.getDevice("torso_lift_joint").setPosition(0.0)
 
     def manual_mode(robot, robot_parts, timestep):
+        # --- Enable Webots Keyboard ---
         keyboard = robot.getKeyboard()
         keyboard.enable(timestep)
+        print("Keyboard enabled.")
+
+        # --- Try to Initialize Pygame Joystick ---
+        joystick = None
+        joystick_enabled = False
+        try:
+            pygame.init()
+            pygame.joystick.init()
+            if pygame.joystick.get_count() > 0:
+                joystick = pygame.joystick.Joystick(0)
+                joystick.init()
+                if joystick:
+                    print(f"Initialized Joystick: {joystick.get_name()}")
+                    print(f"Axes: {joystick.get_numaxes()}, Buttons: {joystick.get_numbuttons()}, Hats: {joystick.get_numhats()}")
+                    joystick_enabled = True
+                else:
+                    print("Warning: Pygame joystick found but failed to initialize.")
+            else:
+                print("Info: No joystick detected. Using keyboard controls.")
+        except Exception as e:
+            print(f"Warning: Pygame/Joystick initialization failed: {e}. Using keyboard controls.")
+            if pygame.get_init(): # Clean up if pygame initialized partially
+                 pygame.quit()
+            joystick_enabled = False
+
+        # Control constants
+        DEADZONE = 0.1
+        AXIS_SENSITIVITY = 0.005 # Smaller value = stiffer control for joystick
+        Z_STEP = 0.01 # Step size for Z movement
+        KEY_SENSITIVITY = 0.02 # Step size for keyboard movement
 
         # Get the initial position of the motors
         looping = True
-        current_position = [0.5, 0.021, 0.68]  # Forward, centered, slightly above floor # Forward, centered, slightly above floor
+        current_position = [0.5, 0.021, 0.68]  # Forward, centered, slightly above floor
+
         while robot.step(timestep) != -1 and looping:
-            # stop the wheels
+            # --- Reset Action Flags ---
+            delta_x, delta_y, delta_z = 0.0, 0.0, 0.0
+            open_gripper_action = False
+            close_gripper_action = False
+            move_torso_up = False
+            move_torso_down = False
+            reset_action = False
+            exit_action = False
+
+            # --- Input Reading (Conditional) ---
+            if joystick_enabled:
+                # Process Pygame events (essential for joystick)
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT: # Allow closing external window if one exists
+                        exit_action = True
+                    # Optional: Handle joystick disconnection/reconnection
+
+                # Check connection (basic)
+                if not pygame.joystick.get_count() > 0:
+                     print("Error: Joystick disconnected during use.", file=sys.stderr)
+                     exit_action = True # Or could attempt fallback to keyboard
+
+                if not exit_action:
+                    # Read Joystick Axes
+                    axis0 = joystick.get_axis(0) # Left Stick X: Left (-1) to Right (+1)
+                    axis1 = joystick.get_axis(1) # Left Stick Y: Up (-1) to Down (+1)
+                    axis4 = joystick.get_axis(4) # L2 Trigger
+                    axis5 = joystick.get_axis(5) # R2 Trigger
+
+                    # Read Joystick Buttons
+                    if joystick.get_button(1): exit_action = True      # Circle (Exit)
+                    if joystick.get_button(8): open_gripper_action = True # Open Grip
+                    if joystick.get_button(9): close_gripper_action = True # Close Grip
+                    if joystick.get_button(11): delta_z += Z_STEP        # Move Hand Up
+                    if joystick.get_button(12): delta_z -= Z_STEP        # Move Hand Down
+                    if joystick.get_button(15): reset_action = True     # Touchpad (Reset)
+
+                    # Apply Joystick Axis Input
+                    if abs(axis0) > DEADZONE:
+                        delta_y -= axis0 * AXIS_SENSITIVITY # Left/Right (Y)
+                    if abs(axis1) > DEADZONE:
+                        delta_x -= axis1 * AXIS_SENSITIVITY # Forward/Back (X)
+
+                    # Apply Trigger Input
+                    trigger_threshold = -0.9
+                    if axis5 > trigger_threshold: move_torso_up = True # R2
+                    if axis4 > trigger_threshold: move_torso_down = True # L2
+
+            else: # Keyboard Control
+                key = keyboard.getKey()
+                if key == 65: delta_y += KEY_SENSITIVITY   # A key - Move Left
+                elif key == 68: delta_y -= KEY_SENSITIVITY  # D key - Move Right
+                elif key == 87: delta_x += KEY_SENSITIVITY   # W key - Move Forward
+                elif key == 83: delta_x -= KEY_SENSITIVITY  # S key - Move Backward
+                elif key == 81: delta_z += Z_STEP           # Q key - Move Hand Up
+                elif key == 69: delta_z -= Z_STEP           # E key - Move Hand Down
+                elif key == 72: open_gripper_action = True # H key - Open Gripper
+                elif key == 71: close_gripper_action = True # G key - Close Gripper (changed from exit)
+                elif key == 82: move_torso_up = True       # R key - Move Torso Up
+                elif key == 70: move_torso_down = True     # F key - Move Torso Down
+                elif key == 66: reset_action = True        # B key - Reset Position (changed from back)
+                elif key == 67: exit_action = True         # C key - Exit manual mode
+
+            # --- Apply Actions ---
+            if exit_action:
+                looping = False
+                break # Exit the loop immediately
+
+            # Update position based on inputs
+            current_position[0] += delta_x
+            current_position[1] += delta_y
+            current_position[2] += delta_z
+
+            # Apply discrete actions
+            if open_gripper_action: openGrip()
+            if close_gripper_action: closeGrip()
+            if move_torso_up: moveUp()
+            if move_torso_down: moveDown()
+            if reset_action:
+                current_position = [0.5, 0.021, 0.68] # Reset to origin
+                print("Position Reset")
+
+
+            # --- Robot Control ---
+            # Stop wheels (redundant?)
             robot_parts["wheel_left_joint"].setVelocity(0)
             robot_parts["wheel_right_joint"].setVelocity(0)
-            key = robot.getKeyboard().getKey()
-            
-            if key == 65:  # A key - Move Left
-                current_position[1] += 0.02
-            elif key == 68: # D key - Move Right
-                current_position[1] -= 0.02
-            elif key == 87: # W key - Move Forward
-                current_position[0] += 0.02 
-            elif key == 83: # S key - Move Backward
-                current_position[0] -= 0.02
-            elif key == 81: # Q key - Move Up
-                current_position[2] += 0.02 
-            elif key == 69: # E key - Move Down
-                current_position[2] -= 0.02
-            elif key == 71: # G key - Exit manual mode (and close gripper)
-                closeGrip()
-            elif key == 72: # H key - Open Gripper
-                openGrip()
-            elif key == 82: # R key - Move Up
-                moveUp()
-            elif key == 70: # F key - Move Down
-                moveDown()
-            elif key == 67: # C key - Exit manual mode
-                looping = False
-            elif key == 66: # B key - Move Backward
-                current_position = [0.5, 0.021, 0.68] #hard reset to origin
 
-            # Only calculate IK and move arm if position was changed
-
-            # Calculate IK for this position
+            # Calculate IK for the target position
             ikResults = calculateIk(current_position, orient=True, orientation_mode="Y")
-                        
-            # Move the arm to the target position
+
+            # Move the arm
             moveArmToTarget(ikResults)
 
-            # Check if the arm is at the target position
-            print("current_position: ", current_position)
+            # Print current target position
+            print("current_position: ", ["{:.3f}".format(p) for p in current_position])
+
+        # --- Cleanup ---
+        if joystick_enabled and pygame.get_init(): # Quit pygame only if it was used
+            pygame.quit()
+        print("Exiting manual mode.")
+        # Keyboard is disabled automatically when the controller exits
 
     #x, y, z = abs(x), abs(y), abs(z)
     

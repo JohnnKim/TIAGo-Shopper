@@ -1,3 +1,8 @@
+"""
+This file contains the mapping code for the grocery shopper.
+All code written in this file was written by Andrew Rho.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -19,8 +24,10 @@ MAP_SCALE = 30 # pixels per meter
 
 
 
-
-### This is where you should write all of your code (arguments are flexible, they were just examples, make sure to update them here and in the grocery_shopper.py file)
+"""
+Entry point for the mapping code.
+Takes in a lot of things from main controller.
+"""
 def main(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR):
     # --- Get Actual Display Dimensions ---
     display_width = display.getWidth()

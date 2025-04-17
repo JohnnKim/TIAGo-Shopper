@@ -1,126 +1,71 @@
+"""
+This file contains the planning code for the grocery shopper.
+All code written in this file was written by John Kim.
+"""
+
 import numpy as np
-import matplotlib.pyplot as plt
 import math
 import random
+import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
 
-# A* Implementation
-def path_planner(map, start, end):
-    """
-    A* Pathfinding algorithm implementation.
+# Constants
+MAP_WIDTH = 900
+MAP_HEIGHT = 483
+MAP_SCALE = 30  # pixels per meter
+OBS_MARGIN = 8
 
-    Parameters:
-    - map (np.array): A 2D numpy array representing the map grid where 0 is free space and 1 is an obstacle.
-    - start (tuple): The starting coordinates as (x, y) on the map grid.
-    - end (tuple): The goal coordinates as (x, y) on the map grid.
-
-    Returns:
-    - list: A list of waypoints (tuples) from start to end representing the optimal path found, or an empty list if no path is found.
+# Function to inflate obstacles in the map
+def inflate_map(map_array):
     """
-    def heuristic(a, b):
-        """
-        Heuristic function for A* algorithm (Euclidean distance).
-        
-        Parameters:
-        - a (tuple): A point (x1, y1).
-        - b (tuple): A point (x2, y2).
-        
-        Returns:
-        - float: The Euclidean distance between points a and b.
-        """
-        return np.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
-    
-    movements = [
-        (0, 1, 1), (1, 0, 1), (0, -1, 1), (-1, 0, 1),  # Cardinal directions
-        (1, 1, 1.414), (1, -1, 1.414), (-1, 1, 1.414), (-1, -1, 1.414)  # Diagonal directions
-    ]
-    
-    open_set = {start}  # Set of nodes to be evaluated
-    closed_set = set()  # Set of nodes already evaluated
-    came_from = {}  # Tracks the best path to each node
-    g_score = {start: 0}  # Cost from start to current node
-    f_score = {start: heuristic(start, end)}  # Estimated cost from start to end
-
-    while open_set:
-        current = min(open_set, key=lambda x: f_score.get(x, float('inf')))
-        if current == end:
-            # Reconstruct the path by tracing back from the end node
-            path = []
-            while current in came_from:
-                path.append(current)
-                current = came_from[current]
-            path.append(start)
-            path.reverse()  # Path is reversed to go from start to end
-            return path
-        open_set.remove(current)
-        closed_set.add(current)
-        
-        for dx, dy, cost in movements:
-            neighbor = (current[0] + dx, current[1] + dy)
-            # Check if the neighbor is within bounds and not an obstacle
-            if (0 <= neighbor[0] < map.shape[1] and
-                0 <= neighbor[1] < map.shape[0] and
-                neighbor not in closed_set and
-                map[neighbor[1]][neighbor[0]] == 0):
-                tentative_g = g_score[current] + cost
-                if neighbor not in open_set:
-                    open_set.add(neighbor)
-                elif tentative_g >= g_score.get(neighbor, float('inf')):
-                    continue
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g
-                f_score[neighbor] = tentative_g + heuristic(neighbor, end)
-    
-    print("No path found")
-    return []
-
-# RRT Implementation
-def distance(a, b):
+    Inflates obstacles in the map by a given radius to ensure safe paths for larger robots.
     """
-    Calculates the Euclidean distance between two points.
+    # Create a circular kernel for inflation
+             
+    robot_radius = int(.35 * 30)  # 0.35m radius, scaled by 30 px/m
+    kernel = np.zeros((2*robot_radius+1, 2*robot_radius+1))
+    y, x = np.ogrid[-robot_radius:robot_radius+1, -robot_radius:robot_radius+1]
+    mask = x**2 + y**2 <= robot_radius**2
+    kernel[mask] = 1
     
-    Parameters:
-    - a (tuple): First point (x1, y1).
-    - b (tuple): Second point (x2, y2).
-    
-    Returns:
-    - float: The Euclidean distance between a and b.
-    """
-    return np.linalg.norm(np.array(a) - np.array(b))
+    cspace = convolve2d(map_array, kernel, mode='same') > 0
+    cspace = cspace.astype(np.uint8)  # Convert to binary map
 
-def steer(from_node, to_node, step_size):
-    """
-    Steers the robot from one node to another using a fixed step size.
+    return cspace
     
-    Parameters:
-    - from_node (tuple): The current node (x1, y1).
-    - to_node (tuple): The target node (x2, y2).
-    - step_size (int): The step size used for movement.
-    
-    Returns:
-    - tuple: The new node (x, y) after steering from the current node.
+# Function to visualize path on map
+def visualize_path(path, map_array_rgb, step=1, radius=2):
     """
-    direction = np.array(to_node) - np.array(from_node)
-    length = np.linalg.norm(direction)
-    if length == 0:
-        return from_node
-    direction = direction / length
-    new_point = np.array(from_node) + step_size * direction
-    return tuple(np.round(new_point).astype(int))
+    Paints a red dot (square brush) around each waypoint.
+    'radius' controls how big the dot is.
+    """
+    print(f"Visualizing path with {len(path)} waypoints.")
+    for i in range(0, len(path), step):
+        map_x, map_y = path[i]
+        for dx in range(-radius, radius + 1):
+            for dy in range(-radius, radius + 1):
+                px = map_x + dx
+                py = map_y + dy
+                if 0 <= px < map_array_rgb.shape[1] and 0 <= py < map_array_rgb.shape[0]:
+                    map_array_rgb[py, px] = [1.0, 0.0, 0.0]  # RED
+    return map_array_rgb
 
+def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
+    # Offset origin to center of the map
+    map_x = int((world_x * scale_x) + map_width // 2)
+    map_y = int(map_height // 2 - (world_y * scale_y))  # Y flipped
+
+    # Debug the conversion results
+    print(f"World ({world_x}, {world_y}) → Map ({map_x}, {map_y})")
+    
+    # Ensure coordinates are within map bounds
+    map_x = min(max(0, map_x), map_width - 1)
+    map_y = min(max(0, map_y), map_height - 1)
+    
+    return map_x, map_y
+
+# Bresenham's line algorithm to check if the path between two points is free of obstacles
 def bresenham(x0, y0, x1, y1):
-    """
-    Bresenham's line algorithm for generating a list of points between two coordinates.
-    
-    Parameters:
-    - x0 (int): The starting x-coordinate.
-    - y0 (int): The starting y-coordinate.
-    - x1 (int): The ending x-coordinate.
-    - y1 (int): The ending y-coordinate.
-    
-    Returns:
-    - list: A list of points along the line between (x0, y0) and (x1, y1).
-    """
     points = []
     dx = abs(x1 - x0)
     dy = -abs(y1 - y0)
@@ -140,158 +85,334 @@ def bresenham(x0, y0, x1, y1):
             y0 += sy
     return points
 
-def is_free(p1, p2, map_array):
+# Check if the line between two points is free (i.e., no obstacles)
+def is_free(p1, p2, map_array, margin=0, threshold=0.3):
     """
-    Checks if the line between two points is free of obstacles.
-    
-    Parameters:
-    - p1 (tuple): First point (x1, y1).
-    - p2 (tuple): Second point (x2, y2).
-    - map_array (np.array): The map array with 0 for free space and 1 for obstacles.
-    
-    Returns:
-    - bool: True if the path between the points is free, False otherwise.
+    Check if the path between two points is free from obstacles.
+    Margin can be smaller now because we're using pre-inflated obstacles.
     """
     for x, y in bresenham(*p1, *p2):
-        if not (0 <= x < map_array.shape[1] and 0 <= y < map_array.shape[0]):
-            return False
-        if map_array[y][x] > 0:
+        # We can use a smaller margin here since the map is pre-inflated
+        for dx in range(-margin, margin + 1):
+            for dy in range(-margin, margin + 1):
+                px = x + dx
+                py = y + dy
+                if 0 <= px < map_array.shape[1] and 0 <= py < map_array.shape[0]:
+                    if map_array[py, px] > threshold:
+                        return False
+    return True
+
+# Calculate clearance for a point
+def calculate_clearance(point, map_array, max_radius=20, threshold=0.3):
+    """
+    Calculate how far the nearest obstacle is from this point.
+    Returns a value between 0 (obstacle) and max_radius (clear space).
+    """
+    x, y = point
+    
+    # Quick check if point is on an obstacle
+    if map_array[y, x] > threshold:
+        return 0
+        
+    # Check in expanding circles
+    for r in range(1, max_radius + 1):
+        found_obstacle = False
+        
+        # Check only the perimeter of the circle (approximately)
+        for angle in np.linspace(0, 2*np.pi, 8*r):  # More samples for larger circles
+            px = int(x + r * np.cos(angle))
+            py = int(y + r * np.sin(angle))
+            
+            if 0 <= px < map_array.shape[1] and 0 <= py < map_array.shape[0]:
+                if map_array[py, px] > threshold:
+                    return r
+    
+    return max_radius
+
+# Ensure full path clearance (not just endpoints)
+def path_clearance_ok(p1, p2, map_array, min_clearance):
+    """
+    Ensures the entire edge from p1 to p2 maintains a safe clearance from obstacles.
+    """
+    for x, y in bresenham(*p1, *p2):
+        if calculate_clearance((x, y), map_array) < min_clearance:
             return False
     return True
 
-def rrt(map_array, start, goal, max_iter=1000, step_size=10, goal_sample_rate=0.1):
+# RRT Pathfinding Implementation
+def distance(a, b):
+    return np.linalg.norm(np.array(a) - np.array(b))
+
+def steer(from_node, to_node, step_size):
+    direction = np.array(to_node) - np.array(from_node)
+    length = np.linalg.norm(direction)
+    if length == 0:
+        return from_node
+    direction = direction / length
+    new_point = np.array(from_node) + step_size * direction
+    return tuple(np.round(new_point).astype(int))
+
+def sample_point(map_array, goal, iteration, max_iter, goal_sample_rate=0.2, clearance_bias=0.3):
     """
-    Rapidly-exploring Random Tree (RRT) pathfinding algorithm.
+    Advanced sampling strategy:
+    - Dynamic goal sampling rate
+    - Bias toward areas with higher clearance
+    """
+    # Increase goal bias as iterations progress
+    dynamic_goal_rate = goal_sample_rate + (0.3 * iteration / max_iter)
     
-    Parameters:
-    - map_array (np.array): The 2D map array with 0 for free space and 1 for obstacles.
-    - start (tuple): The starting coordinates as (x, y)
-    - goal (tuple): The goal coordinates as (x, y)
-    - max_iter (int): The maximum number of iterations to try for pathfinding.
-    - step_size (int): The step size for exploring the space.
-    - goal_sample_rate (float): The probability of sampling the goal directly instead of random points.
+    if random.random() < dynamic_goal_rate:
+        return goal
     
-    Returns:
-    - list: A list of waypoints (tuples) from start to goal if found, otherwise an empty list.
+    # Sample random point
+    for _ in range(10):  # Try a few times to find a point with good clearance
+        x = random.randint(0, map_array.shape[1] - 1)
+        y = random.randint(0, map_array.shape[0] - 1)
+        
+        # If point is not on an obstacle, consider it
+        if map_array[y, x] < 0.3:
+            if random.random() > clearance_bias:
+                return (x, y)
+            
+            # With some probability, check clearance and accept if it's good
+            clearance = calculate_clearance((x, y), map_array)
+            if clearance > 5:  # Prefer points with good clearance
+                return (x, y)
+    
+    # Fallback to basic random sampling
+    return (
+        random.randint(0, map_array.shape[1] - 1),
+        random.randint(0, map_array.shape[0] - 1),
+    )
+
+def adaptive_step_size(from_node, current_step, map_array, min_step=5, max_step=15):
+    """
+    Adjust step size based on environment complexity.
+    Smaller steps in cluttered areas, larger steps in open space.
+    """
+    clearance = calculate_clearance(from_node, map_array)
+    
+    # Map clearance to step size, with bounds
+    step = min_step + (clearance / 10) * (max_step - min_step)
+    return min(max(step, min_step), max_step)
+
+def rrt_star(map_array, start, goal, max_iter=300, base_step_size=10, goal_sample_rate=0.2, search_radius_factor=1.5):
+    """
+    RRT* Algorithm:
+    - Advanced sampling
+    - Adaptive step size
+    - Cost calculation and propagation
+    - Rewiring the tree for optimal paths
     """
     nodes = [start]
     parents = {start: None}
-    
-    for _ in range(max_iter):
-        if random.random() < goal_sample_rate:
-            rand_point = goal
-        else:
-            rand_point = (
-                random.randint(0, map_array.shape[1] - 1),
-                random.randint(0, map_array.shape[0] - 1),
-            )
-        nearest = min(nodes, key=lambda n: distance(n, rand_point))
-        new_node = steer(nearest, rand_point, step_size)
-        
-        if is_free(nearest, new_node, map_array):
+    costs = {start: 0.0}  # Cost from start to node
+
+    print(f"Starting RRT* with start: {start} and goal: {goal}")
+
+    # Verify start and goal are valid
+    if map_array[start[1], start[0]] > 0.3:
+        print("ERROR: Start point is inside an obstacle!")
+        return []
+
+    if map_array[goal[1], goal[0]] > 0.3:
+        print("ERROR: Goal point is inside an obstacle!")
+        return []
+
+    for i in range(max_iter):
+        # Sample a random point with advanced strategy
+        rand_point = sample_point(map_array, goal, i, max_iter, goal_sample_rate)
+
+        # Find nearest node
+        nearest_node = min(nodes, key=lambda n: distance(n, rand_point))
+
+        # Use adaptive step size
+        step_size = adaptive_step_size(nearest_node, base_step_size, map_array)
+
+        # Steer towards the random point
+        new_node = steer(nearest_node, rand_point, step_size)
+
+        # Skip if new_node is out of bounds or in collision
+        if not (0 <= new_node[0] < map_array.shape[1] and 0 <= new_node[1] < map_array.shape[0]) \
+           or map_array[new_node[1], new_node[0]] > 0.3:
+            continue
+
+        # --- RRT* Specific Logic --- 
+
+        # Calculate search radius (dynamic based on number of nodes)
+        num_nodes = len(nodes)
+        dimension = 2
+        # Heuristic: gamma * (log(n)/n)^(1/d)
+        # Adjusted gamma for practical performance
+        gamma = base_step_size * 10 # Tuning parameter
+        search_radius = min(gamma * (math.log(num_nodes + 1) / (num_nodes + 1))**(1./dimension) * search_radius_factor, step_size * 3) # Cap radius
+        search_radius = max(search_radius, step_size) # Minimum radius
+
+        # Find near nodes within the search radius
+        near_nodes = [n for n in nodes if distance(n, new_node) <= search_radius]
+
+        # Choose Parent: Select the best parent from near_nodes
+        best_parent = nearest_node
+        min_cost = costs[nearest_node] + distance(nearest_node, new_node)
+
+        for near_node in near_nodes:
+            cost_via_near = costs[near_node] + distance(near_node, new_node)
+            if cost_via_near < min_cost and is_free(near_node, new_node, map_array, margin=0):
+                 min_cost = cost_via_near
+                 best_parent = near_node
+
+        # Add the new node if the connection is valid
+        if is_free(best_parent, new_node, map_array, margin=0):
             nodes.append(new_node)
-            parents[new_node] = nearest
-            if distance(new_node, goal) < step_size and is_free(new_node, goal, map_array):
-                parents[goal] = new_node
-                break
+            parents[new_node] = best_parent
+            costs[new_node] = min_cost
+
+            # Rewire: Check if new_node offers a better path for near nodes
+            for near_node in near_nodes:
+                if near_node == best_parent: continue # Don't rewire the parent itself
+
+                cost_via_new = costs[new_node] + distance(new_node, near_node)
+                if cost_via_new < costs[near_node] and is_free(new_node, near_node, map_array, margin=0):
+                    parents[near_node] = new_node
+                    costs[near_node] = cost_via_new
+                    # Note: In full RRT*, cost updates should propagate, but this is often omitted for simplicity
+
+            # Check if goal is reachable from the new_node
+            dist_to_goal = distance(new_node, goal)
+            if dist_to_goal < step_size * 1.5 and is_free(new_node, goal, map_array, margin=0):
+                cost_to_goal_via_new = costs[new_node] + dist_to_goal
+                # Update goal connection only if this path is better than any existing path to goal
+                if cost_to_goal_via_new < costs.get(goal, float('inf')):
+                    parents[goal] = new_node
+                    costs[goal] = cost_to_goal_via_new
+                    print(f"Goal potentially reached at iteration {i} with cost {cost_to_goal_via_new:.2f}")
+                    # RRT* doesn't stop early, it continues searching for better paths
+
+        if i % 100 == 0:  # Print status every 100 iterations
+            closest_dist = min([distance(n, goal) for n in nodes]) if nodes else float('inf')
+            print(f"Iteration {i}/{max_iter}, Nodes: {len(nodes)}, Closest distance to goal: {closest_dist:.2f}, Goal cost: {costs.get(goal, float('inf')):.2f}")
+
+    # --- Path Reconstruction --- 
+
+    # If we reached max iterations without finding the goal node in parents
+    if goal not in parents:
+        print("WARNING: RRT* reached max iterations without directly connecting to goal.")
+        # Find the node closest to the goal that we *can* reach
+        reachable_nodes = {n: costs[n] for n in nodes if n in parents}
+        if not reachable_nodes:
+             print("ERROR: No reachable nodes found!")
+             return []
+        closest_node = min(reachable_nodes, key=lambda n: distance(n, goal))
+        
+        # Check if a final connection is possible
+        if is_free(closest_node, goal, map_array, margin=0):
+            parents[goal] = closest_node
+            costs[goal] = costs[closest_node] + distance(closest_node, goal)
+            print(f"Connected to goal via closest node {closest_node} at cost {costs[goal]:.2f}")
+        else:
+            print("ERROR: Could not find valid path to goal even after checking closest node.")
+            return [] # No valid path found
     
+    # Reconstruct the path from the goal using the parent pointers
     path = []
-    node = goal if goal in parents else min(nodes, key=lambda n: distance(n, goal))
+    node = goal
     while node is not None:
         path.append(node)
         node = parents[node]
     path.reverse()
+
+    print(f"Optimal path found with {len(path)} waypoints and cost {costs[goal]:.2f}")
     return path
 
-def smooth_path(path, map_array):
+def smooth_path(path, map_array, smoothing_radius=2):
     """
-    Smooths the path by removing unnecessary waypoints.
-    
-    Parameters:
-    - path (list): The list of waypoints to be smoothed.
-    - map_array (np.array): The map array to check if a segment is free of obstacles.
-    
-    Returns:
-    - list: A list of smoothed waypoints.
+    Simplify the path by removing redundant waypoints while ensuring 
+    the path remains obstacle-free.
     """
-    if not path:
-        return []
-    smooth = [path[0]]
+    if len(path) <= 2:
+        return path
+    
+    smoothed = [path[0]]
     i = 0
+    
     while i < len(path) - 1:
-        j = len(path) - 1
-        while j > i:
-            if is_free(path[i], path[j], map_array):
-                smooth.append(path[j])
+        max_jump = min(i + 5, len(path) - 1)  # Only look ahead 5 steps
+        connected = False
+        for j in range(max_jump, i, -1):
+            if is_free(path[i], path[j], map_array, margin=smoothing_radius) and path_clearance_ok(path[i], path[j], map_array, OBS_MARGIN):
+                smoothed.append(path[j])
                 i = j
+                connected = True
                 break
-            j -= 1
-    return smooth
+        if not connected:
+            i += 1
+            if i < len(path):
+                smoothed.append(path[i])
+    
+    print(f"Smoothed path from {len(path)} to {len(smoothed)} waypoints")
+    return smoothed
 
-# Waypoint Conversion
-def convert_paths_to_waypoints(all_paths, density_level=0):
+def convert_paths_to_waypoints(paths):
     """
-    Converts the path into waypoints with adjustable density.
-    
-    Parameters:
-    - all_paths (list): A list of paths (each path is a list of waypoints).
-    - density_level (int): Determines the density of the waypoints.
-    
-    Returns:
-    - list: A list of waypoints representing the converted paths.
+    Convert a list of paths (segments) into a list of waypoints.
     """
-    all_waypoints = []
-    for segment_idx, path in enumerate(all_paths):
-        if density_level == 0:
-            first_spacing, middle_spacing, last_spacing = 30, 20, 10
+    waypoints = []
+    for path in paths:
+        for p in path:
+            waypoints.append(p)
+    return waypoints
+
+# Main Planner Code
+def main():
+    # Start position based on actual robot's initial position
+    start_w = (0, 0)  # Hard-coded world coordinates of robot's position
+
+    # Define multiple waypoints to visit in sequence
+    waypointList = [(0, 0), (6.33057, 8.99417), (0.948708, 10.4302), (0, 0)]  # Example waypoints
+
+    # Load map
+    map_array = np.load("map.npy")
+    
+    # Pre-inflate the obstacles in the map
+    inflated_map = inflate_map(map_array, radius=OBS_MARGIN)
+
+    #quickly display the inflated map
+    plt.imshow(inflated_map)
+    plt.show()
+
+    # Create a list to store all path segments
+    all_paths = []
+
+    # Process each segment of the path
+    for i in range(len(waypointList) - 1):
+        current_start = waypointList[i]
+        current_end = waypointList[i+1]
+
+        # Convert the start and end from the webots coordinate frame into the map frame
+        start = world_to_map_coords(*current_start)
+        end = world_to_map_coords(*current_end)
+
+        # Plan path for this segment using RRT*
+        path = rrt_star(inflated_map, start, end, max_iter=5000)
+        
+        if path:
+            # Smooth the path to reduce zigzags
+            smoothed_path = smooth_path(path, inflated_map)
+            print(f"Path segment {i+1} found with {len(smoothed_path)} points after smoothing")
+            all_paths.append(smoothed_path)
         else:
-            first_spacing, middle_spacing, last_spacing = 15, 10, 5
+            print(f"Failed to find path for segment {i+1} — skipping.")
+            break
 
-        first_portion = min(len(path) // 3, 100)
-        second_portion = min(2 * len(path) // 3, 200)
-        segment_waypoints = []
-
-        for i in range(0, first_portion, first_spacing):
-            point = path[i]
-            segment_waypoints.append(_map_to_world(point))
-        for i in range(first_portion, second_portion, middle_spacing):
-            point = path[i]
-            segment_waypoints.append(_map_to_world(point))
-        for i in range(second_portion, len(path), last_spacing):
-            point = path[i]
-            segment_waypoints.append(_map_to_world(point))
-
-        # Always include end
-        last_point = path[-1]
-        end_wp = _map_to_world(last_point)
-        if end_wp not in segment_waypoints:
-            segment_waypoints.append(end_wp)
-
-        if segment_idx > 0 and segment_waypoints:
-            all_waypoints.extend(segment_waypoints[1:])
+    # Convert paths to waypoints and save on disk as path.npy
+    if all_paths:
+        all_waypoints = convert_paths_to_waypoints(all_paths)
+        if all_waypoints:
+            np.save("path.npy", np.array(all_waypoints))
+            print(f"Complete path saved with {len(all_waypoints)} waypoints to path.npy")
+        
         else:
-            all_waypoints.extend(segment_waypoints)
+            print("ERROR: No waypoints were generated! Path following will not work.")
 
-    if all_waypoints:
-        all_waypoints.pop(0)
-    return all_waypoints
-
-def _map_to_world(point):
-    """
-    Converts map coordinates to world coordinates.
-    
-    Parameters:
-    - point (tuple): A map coordinate (x, y).
-    
-    Returns:
-    - tuple: The corresponding world coordinates (wx, wy).
-    """
-    x, y = point
-    wx = -((360 - x) / 30.0)
-    wy = -((y) / 30.0)
-    return (wx, wy)
-
-def main(map, start, end):
-    path = path_planner(map, start, end)
-    return path
-
+if __name__ == "__main__":
+    main()
