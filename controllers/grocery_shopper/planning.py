@@ -15,6 +15,76 @@ MAP_HEIGHT = 483
 MAP_SCALE = 30  # pixels per meter
 OBS_MARGIN = 8
 
+# A* path planning method (unused, but left here for checklist purposes)
+# def path_planner(map, start, end):
+#      """
+#      A* Pathfinding algorithm implementation.
+ 
+#      Parameters:
+#      - map (np.array): A 2D numpy array representing the map grid where 0 is free space and 1 is an obstacle.
+#      - start (tuple): The starting coordinates as (x, y) on the map grid.
+#      - end (tuple): The goal coordinates as (x, y) on the map grid.
+ 
+#      Returns:
+#      - list: A list of waypoints (tuples) from start to end representing the optimal path found, or an empty list if no path is found.
+#      """
+#      def heuristic(a, b):
+#          """
+#          Heuristic function for A* algorithm (Euclidean distance).
+         
+#          Parameters:
+#          - a (tuple): A point (x1, y1).
+#          - b (tuple): A point (x2, y2).
+         
+#          Returns:
+#          - float: The Euclidean distance between points a and b.
+#          """
+#          return np.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+     
+#      movements = [
+#          (0, 1, 1), (1, 0, 1), (0, -1, 1), (-1, 0, 1),  # Cardinal directions
+#          (1, 1, 1.414), (1, -1, 1.414), (-1, 1, 1.414), (-1, -1, 1.414)  # Diagonal directions
+#      ]
+     
+#      open_set = {start}  # Set of nodes to be evaluated
+#      closed_set = set()  # Set of nodes already evaluated
+#      came_from = {}  # Tracks the best path to each node
+#      g_score = {start: 0}  # Cost from start to current node
+#      f_score = {start: heuristic(start, end)}  # Estimated cost from start to end
+ 
+#      while open_set:
+#          current = min(open_set, key=lambda x: f_score.get(x, float('inf')))
+#          if current == end:
+#              # Reconstruct the path by tracing back from the end node
+#              path = []
+#              while current in came_from:
+#                  path.append(current)
+#                  current = came_from[current]
+#              path.append(start)
+#              path.reverse()  # Path is reversed to go from start to end
+#              return path
+#          open_set.remove(current)
+#          closed_set.add(current)
+         
+#          for dx, dy, cost in movements:
+#              neighbor = (current[0] + dx, current[1] + dy)
+#              # Check if the neighbor is within bounds and not an obstacle
+#              if (0 <= neighbor[0] < map.shape[1] and
+#                  0 <= neighbor[1] < map.shape[0] and
+#                  neighbor not in closed_set and
+#                  map[neighbor[1]][neighbor[0]] == 0):
+#                  tentative_g = g_score[current] + cost
+#                  if neighbor not in open_set:
+#                      open_set.add(neighbor)
+#                  elif tentative_g >= g_score.get(neighbor, float('inf')):
+#                      continue
+#                  came_from[neighbor] = current
+#                  g_score[neighbor] = tentative_g
+#                  f_score[neighbor] = tentative_g + heuristic(neighbor, end)
+     
+#      print("No path found")
+#      return []
+
 # Function to inflate obstacles in the map
 def inflate_map(map_array):
     """
