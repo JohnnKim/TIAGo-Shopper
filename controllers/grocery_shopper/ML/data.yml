@@ -1,11 +1,6 @@
-# Path relative to where you run the 'yolo' command
-# If dataset/ is in the same directory you run 'yolo' from, leave path empty or use '.'
-# Otherwise, provide the relative or absolute path to the 'dataset' directory.
-# path: . # Commented out based on diagnosis
-train: images/train  # Path relative to data.yaml location
-val: images/val    # Path relative to data.yaml location
+train: images/train
+val: images/val
 
-# Classes
 names:
   0: yellow_cube
   1: green_cube 
