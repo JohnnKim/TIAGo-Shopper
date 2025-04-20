@@ -64,13 +64,7 @@ def follow_waypoints(path, robot_parts, vL, vR, waypoint_index, pose_theta, pose
     angle_error = math.atan2(math.sin(target_angle - pose_theta), 
                              math.cos(target_angle - pose_theta))
     
-    # Logging (less frequent to reduce console spam)
-    if waypoint_index % 10 == 0 or distance < 0.5:
-        print(f"Following waypoint {waypoint_index}/{len(path)-1}")
-        print(f"Target: world ({target_world_x:.2f}, {target_world_y:.2f})")
-        print(f"Current: ({pose_x:.2f}, {pose_y:.2f}), heading: {math.degrees(pose_theta):.1f}°")
-        print(f"Distance: {distance:.2f}m, Angle error: {math.degrees(angle_error):.1f}°")
-    
+
     # Dynamic waypoint threshold - smaller for final waypoint
     is_final_waypoint = waypoint_index == len(path) - 1
     waypoint_threshold = 0.15 if is_final_waypoint else 0.3  # meters

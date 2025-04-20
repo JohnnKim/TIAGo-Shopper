@@ -10,14 +10,9 @@ np.float = float
 np.bool = bool
 np.int = int
 import math
-import matplotlib.pyplot as plt
 import ikpy.chain
-import ikpy.utils.plot as plot_utils #plotting utils, install with " pip install 'ikpy[plot]' "
-import pygame # Added for controller input
-import sys # Added for controller input error handling
-# Remove global prev_position if not used
-# global prev_position
-# ---- HELPER FUNCTIONS ----
+import pygame #used for gamepad input
+import sys
 
 def get_gripper_status(right_gripper_enc, left_gripper_enc):
     if right_gripper_enc.getValue()<=0.005:
@@ -37,10 +32,7 @@ def toggle_gripper(robot_parts, right_gripper_enc, left_gripper_enc):
 base_elements=["base_link", "base_link_Torso_joint", "Torso", "torso_lift_joint", "torso_lift_link", "torso_lift_link_TIAGo front arm_11367_joint", "TIAGo front arm_11367"]
 my_chain = ikpy.chain.Chain.from_urdf_file("robot_urdf.urdf", base_elements=["base_link", "base_link_Torso_joint", "Torso", "torso_lift_joint", "torso_lift_link", "torso_lift_link_TIAGo front arm_11367_joint", "TIAGo front arm_11367"])
 
-# --- Manually control arm ---
 
-
-            
 
 # ---- MAIN FUNCTION ----
 def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gripper_enc, timestep, x,y,z):
@@ -197,17 +189,40 @@ def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gr
 
         # Control constants
         DEADZONE = 0.1
-        AXIS_SENSITIVITY = 0.005 # Smaller value = stiffer control for joystick
-        Z_STEP = 0.01 # Step size for Z movement
-        KEY_SENSITIVITY = 0.02 # Step size for keyboard movement
+        AXIS_SENSITIVITY = 0.005 # Smaller value = stiffer control for joystick IK target
+        MANUAL_JOINT_SENSITIVITY = 0.02 # Step size for direct joint control
+        ARM6_LIMITS = [-1.39, 1.39]
+        ARM7_LIMITS = [-2.07, 2.07]
+        Z_STEP = 0.01 # Step size for Z movement (IK target)
+        KEY_SENSITIVITY = 0.02 # Step size for keyboard movement (IK target)
 
-        # Get the initial position of the motors
+        # Get references to the specific joints and their sensors
+        try:
+            arm6_joint = robot_parts["arm_6_joint"]
+            arm7_joint = robot_parts["arm_7_joint"]
+            arm6_sensor = arm6_joint.getPositionSensor()
+            arm7_sensor = arm7_joint.getPositionSensor()
+            arm6_sensor.enable(timestep) # Ensure sensors are enabled
+            arm7_sensor.enable(timestep)
+            initial_arm6_pos = arm6_sensor.getValue()
+            initial_arm7_pos = arm7_sensor.getValue()
+        except KeyError as e:
+             print(f"Error: Could not find joint {e}. Manual joint control disabled.", file=sys.stderr)
+             # Optionally disable joystick mode or just the manual part
+             joystick_enabled = False # Simplest approach: disable joystick if joints missing
+        
+        # Initialize target positions for manually controlled joints
+        target_arm6_pos = initial_arm6_pos
+        target_arm7_pos = initial_arm7_pos
+
+        # Get the initial position of the motors for IK
         looping = True
-        current_position = [0.5, 0.021, 0.68]  # Forward, centered, slightly above floor
+        current_position = [0.5, 0.021, 0.68]  # Forward, centered, slightly above floor (IK Target)
 
         while robot.step(timestep) != -1 and looping:
             # --- Reset Action Flags ---
             delta_x, delta_y, delta_z = 0.0, 0.0, 0.0
+            delta_arm6, delta_arm7 = 0.0, 0.0 # Initialize manual joint deltas
             open_gripper_action = False
             close_gripper_action = False
             move_torso_up = False
@@ -229,28 +244,40 @@ def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gr
                      exit_action = True # Or could attempt fallback to keyboard
 
                 if not exit_action:
-                    # Read Joystick Axes
-                    axis0 = joystick.get_axis(0) # Left Stick X: Left (-1) to Right (+1)
-                    axis1 = joystick.get_axis(1) # Left Stick Y: Up (-1) to Down (+1)
+                    # Read Joystick Axes (IK Control)
+                    axis0 = joystick.get_axis(0) # Left Stick X: Left (-1) to Right (+1) -> Affects Y
+                    axis1 = joystick.get_axis(1) # Left Stick Y: Up (-1) to Down (+1) -> Affects X
+                    # Read Joystick Axes (Manual Joint Control)
+                    axis2 = joystick.get_axis(2) # Right Stick X: Left (-1) to Right (+1) -> arm_7_joint rotation
+                    axis3 = joystick.get_axis(3) # Right Stick Y: Up (-1) to Down (+1) -> arm_6_joint up/down
+                    # Read Triggers (Torso and Gripper implicitly handled below)
                     axis4 = joystick.get_axis(4) # L2 Trigger
                     axis5 = joystick.get_axis(5) # R2 Trigger
 
                     # Read Joystick Buttons
                     if joystick.get_button(1): exit_action = True      # Circle (Exit)
-                    if joystick.get_button(8): open_gripper_action = True # Open Grip
-                    if joystick.get_button(9): close_gripper_action = True # Close Grip
-                    if joystick.get_button(11): delta_z += Z_STEP        # Move Hand Up
-                    if joystick.get_button(12): delta_z -= Z_STEP        # Move Hand Down
+                    if joystick.get_button(8): open_gripper_action = True # Open Grip (Assuming Triangle or similar)
+                    if joystick.get_button(9): close_gripper_action = True # Close Grip (Assuming Square or similar)
+                    # Buttons 11/12 were Z, now redundant with direct joint control? Kept for now.
+                    if joystick.get_button(11): delta_z += Z_STEP        # Move IK Target Up (e.g., R1)
+                    if joystick.get_button(12): delta_z -= Z_STEP        # Move IK Target Down (e.g., L1)
                     if joystick.get_button(15): reset_action = True     # Touchpad (Reset)
 
-                    # Apply Joystick Axis Input
+                    # Apply Joystick Axis Input (IK Target)
                     if abs(axis0) > DEADZONE:
                         delta_y -= axis0 * AXIS_SENSITIVITY # Left/Right (Y)
                     if abs(axis1) > DEADZONE:
                         delta_x -= axis1 * AXIS_SENSITIVITY # Forward/Back (X)
 
-                    # Apply Trigger Input
-                    trigger_threshold = -0.9
+                    # Calculate Manual Joint Deltas
+                    if abs(axis2) > DEADZONE:
+                         delta_arm7 += axis2 * MANUAL_JOINT_SENSITIVITY # Rotate hand
+                    if abs(axis3) > DEADZONE:
+                         # Assuming Up on stick (-1) should move arm joint UP (positive direction)
+                         delta_arm6 -= axis3 * MANUAL_JOINT_SENSITIVITY # Move hand up/down
+
+                    # Apply Trigger Input (Torso)
+                    trigger_threshold = -0.9 # PS controllers often rest at -1
                     if axis5 > trigger_threshold: move_torso_up = True # R2
                     if axis4 > trigger_threshold: move_torso_down = True # L2
 
@@ -285,23 +312,35 @@ def main(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gr
             if move_torso_up: moveUp()
             if move_torso_down: moveDown()
             if reset_action:
-                current_position = [0.5, 0.021, 0.68] # Reset to origin
+                current_position = [0.5, 0.021, 0.68] # Reset IK target
+                target_arm6_pos = initial_arm6_pos   # Reset manual joint target
+                target_arm7_pos = initial_arm7_pos   # Reset manual joint target
                 print("Position Reset")
 
+            # Update and Clamp Manual Joint Targets
+            target_arm6_pos += delta_arm6
+            target_arm7_pos += delta_arm7
+            target_arm6_pos = max(ARM6_LIMITS[0], min(ARM6_LIMITS[1], target_arm6_pos))
+            target_arm7_pos = max(ARM7_LIMITS[0], min(ARM7_LIMITS[1], target_arm7_pos))
 
             # --- Robot Control ---
             # Stop wheels (redundant?)
             robot_parts["wheel_left_joint"].setVelocity(0)
             robot_parts["wheel_right_joint"].setVelocity(0)
 
-            # Calculate IK for the target position
+            # Calculate IK for the target position (rest of the arm)
             ikResults = calculateIk(current_position, orient=True, orientation_mode="Y")
 
-            # Move the arm
+            # Move the arm based on IK
             moveArmToTarget(ikResults)
 
-            # Print current target position
-            print("current_position: ", ["{:.3f}".format(p) for p in current_position])
+            # --- Directly Set Manual Joint Positions ---
+            # NOTE: I was given explicit permission to do this in Office Hours 
+            # we use IK for everything except for the final end effector movement.
+            # this however was very rarely used in the demo. 
+            arm6_joint.setPosition(target_arm6_pos)
+            arm7_joint.setPosition(target_arm7_pos)
+
 
         # --- Cleanup ---
         if joystick_enabled and pygame.get_init(): # Quit pygame only if it was used

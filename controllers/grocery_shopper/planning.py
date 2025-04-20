@@ -8,6 +8,7 @@ import math
 import random
 import matplotlib.pyplot as plt
 from scipy.signal import convolve2d
+from scipy.spatial import cKDTree
 
 # Constants
 MAP_WIDTH = 900
@@ -92,7 +93,7 @@ def inflate_map(map_array):
     """
     # Create a circular kernel for inflation
              
-    robot_radius = int(.35 * 30)  # 0.35m radius, scaled by 30 px/m
+    robot_radius = int(.40 * 30)  # 0.35m radius, scaled by 30 px/m
     kernel = np.zeros((2*robot_radius+1, 2*robot_radius+1))
     y, x = np.ogrid[-robot_radius:robot_radius+1, -robot_radius:robot_radius+1]
     mask = x**2 + y**2 <= robot_radius**2
@@ -126,13 +127,21 @@ def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900,
     map_y = int(map_height // 2 - (world_y * scale_y))  # Y flipped
 
     # Debug the conversion results
-    print(f"World ({world_x}, {world_y}) → Map ({map_x}, {map_y})")
-    
+    # print(f"World ({world_x}, {world_y}) → Map ({map_x}, {map_y})") # Keep commented unless debugging
+
     # Ensure coordinates are within map bounds
     map_x = min(max(0, map_x), map_width - 1)
     map_y = min(max(0, map_y), map_height - 1)
-    
+
     return map_x, map_y
+
+def map_to_world_coords(map_x, map_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
+    """Converts map pixel coordinates back to world coordinates (meters)."""
+    world_x = (map_x - map_width // 2) / scale_x
+    world_y = (map_height // 2 - map_y) / scale_y  # Y flipped back
+
+    # print(f"Map ({map_x}, {map_y}) → World ({world_x:.2f}, {world_y:.2f})") # Keep commented unless debugging
+    return world_x, world_y
 
 # Bresenham's line algorithm to check if the path between two points is free of obstacles
 def bresenham(x0, y0, x1, y1):
@@ -266,7 +275,80 @@ def adaptive_step_size(from_node, current_step, map_array, min_step=5, max_step=
     step = min_step + (clearance / 10) * (max_step - min_step)
     return min(max(step, min_step), max_step)
 
-def rrt_star(map_array, start, goal, max_iter=300, base_step_size=10, goal_sample_rate=0.2, search_radius_factor=1.5):
+# Basic RRT Implementation
+def rrt_basic(map_array, start, goal, max_iter=3000, step_size=15, goal_reach_threshold=20):
+    """
+    Basic RRT Algorithm Implementation.
+    """
+    nodes = [start]
+    parents = {start: None}
+    tree = cKDTree([start]) # Use KDTree for efficient nearest neighbor search
+
+    print(f"Starting Basic RRT with start: {start} and goal: {goal}")
+
+    # Verify start and goal are valid
+    if map_array[start[1], start[0]] > 0.3:
+        print("ERROR: Start point is inside an obstacle!")
+        return []
+    if map_array[goal[1], goal[0]] > 0.3:
+        print("ERROR: Goal point is inside an obstacle!")
+        return []
+
+    for i in range(max_iter):
+        # Sample a random point (with occasional goal bias)
+        if random.random() < 0.1: # 10% chance to sample goal
+            rand_point = goal
+        else:
+            rand_point = (
+                random.randint(0, map_array.shape[1] - 1),
+                random.randint(0, map_array.shape[0] - 1),
+            )
+
+        # Find nearest node
+        _, nearest_idx = tree.query([rand_point], k=1)
+        if isinstance(nearest_idx, (np.ndarray, list)):
+             nearest_idx = nearest_idx[0] # Ensure scalar index
+        nearest_node = nodes[nearest_idx]
+
+        # Steer towards the random point
+        new_node = steer(nearest_node, rand_point, step_size)
+
+        # Check if new_node is valid (within bounds and not in collision)
+        if not (0 <= new_node[0] < map_array.shape[1] and 0 <= new_node[1] < map_array.shape[0]) \
+           or map_array[new_node[1], new_node[0]] > 0.3:
+            continue
+
+        # Check if the path from nearest_node to new_node is collision-free
+        if is_free(nearest_node, new_node, map_array, margin=0):
+            nodes.append(new_node)
+            parents[new_node] = nearest_node
+            tree = cKDTree(nodes) # Rebuild tree after adding node
+
+            # Check if goal is reachable from the new_node
+            dist_to_goal = distance(new_node, goal)
+            if dist_to_goal < goal_reach_threshold and is_free(new_node, goal, map_array, margin=0):
+                parents[goal] = new_node
+                print(f"Goal reached at iteration {i}!")
+
+                # Reconstruct path
+                path = []
+                node = goal
+                while node is not None:
+                    path.append(node)
+                    node = parents.get(node) # Use .get for safety
+                path.reverse()
+                print(f"Basic RRT path found with {len(path)} waypoints.")
+                return path
+
+        if i % 500 == 0: # Print status periodically
+             print(f"Basic RRT Iteration {i}/{max_iter}, Nodes: {len(nodes)}")
+
+
+    print("WARNING: Basic RRT reached max iterations without finding a path to the goal.")
+    return [] # No path found within max_iter
+
+# Keep RRT* implementation below (or comment out/remove if preferred)
+def rrt_star(map_array, start, goal, max_iter=3000, base_step_size=10, goal_sample_rate=0.2, search_radius_factor=1.5, rebuild_tree_freq=100): # Added rebuild_tree_freq
     """
     RRT* Algorithm:
     - Advanced sampling
@@ -281,20 +363,26 @@ def rrt_star(map_array, start, goal, max_iter=300, base_step_size=10, goal_sampl
     print(f"Starting RRT* with start: {start} and goal: {goal}")
 
     # Verify start and goal are valid
-    if map_array[start[1], start[0]] > 0.3:
+    if map_array[start[1], start[0]] == 1:
         print("ERROR: Start point is inside an obstacle!")
         return []
 
-    if map_array[goal[1], goal[0]] > 0.3:
+    if map_array[goal[1], goal[0]] == 1:
         print("ERROR: Goal point is inside an obstacle!")
         return []
+
+    tree = cKDTree([start])
 
     for i in range(max_iter):
         # Sample a random point with advanced strategy
         rand_point = sample_point(map_array, goal, i, max_iter, goal_sample_rate)
 
-        # Find nearest node
-        nearest_node = min(nodes, key=lambda n: distance(n, rand_point))
+        # Find nearest node using the current tree
+        _, nearest_idx = tree.query([rand_point], k=1)
+        # Ensure index is scalar if k=1
+        if isinstance(nearest_idx, (np.ndarray, list)):
+             nearest_idx = nearest_idx[0]
+        nearest_node = nodes[nearest_idx]
 
         # Use adaptive step size
         step_size = adaptive_step_size(nearest_node, base_step_size, map_array)
@@ -307,7 +395,7 @@ def rrt_star(map_array, start, goal, max_iter=300, base_step_size=10, goal_sampl
            or map_array[new_node[1], new_node[0]] > 0.3:
             continue
 
-        # --- RRT* Specific Logic --- 
+        # --- RRT* Specific Logic ---
 
         # Calculate search radius (dynamic based on number of nodes)
         num_nodes = len(nodes)
@@ -318,51 +406,68 @@ def rrt_star(map_array, start, goal, max_iter=300, base_step_size=10, goal_sampl
         search_radius = min(gamma * (math.log(num_nodes + 1) / (num_nodes + 1))**(1./dimension) * search_radius_factor, step_size * 3) # Cap radius
         search_radius = max(search_radius, step_size) # Minimum radius
 
-        # Find near nodes within the search radius
-        near_nodes = [n for n in nodes if distance(n, new_node) <= search_radius]
+        # Find near nodes within the search radius using the current tree
+        near_indices = tree.query_ball_point(new_node, search_radius)
+        near_nodes = [nodes[k] for k in near_indices]
 
         # Choose Parent: Select the best parent from near_nodes
         best_parent = nearest_node
         min_cost = costs[nearest_node] + distance(nearest_node, new_node)
 
-        for near_node in near_nodes:
-            cost_via_near = costs[near_node] + distance(near_node, new_node)
-            if cost_via_near < min_cost and is_free(near_node, new_node, map_array, margin=0):
-                 min_cost = cost_via_near
-                 best_parent = near_node
+        # Check connection to potential parents first
+        possible_parents = [(costs[near_node] + distance(near_node, new_node), near_node) for near_node in near_nodes if is_free(near_node, new_node, map_array, margin=0)]
+        # Add the connection via the nearest node if it's free
+        if is_free(nearest_node, new_node, map_array, margin=0):
+             possible_parents.append((min_cost, nearest_node))
 
-        # Add the new node if the connection is valid
-        if is_free(best_parent, new_node, map_array, margin=0):
-            nodes.append(new_node)
-            parents[new_node] = best_parent
-            costs[new_node] = min_cost
+        # If no valid parent connection found, continue
+        if not possible_parents:
+             continue
 
-            # Rewire: Check if new_node offers a better path for near nodes
-            for near_node in near_nodes:
-                if near_node == best_parent: continue # Don't rewire the parent itself
+        # Find the best parent among valid connections
+        min_cost, best_parent = min(possible_parents, key=lambda x: x[0])
 
-                cost_via_new = costs[new_node] + distance(new_node, near_node)
-                if cost_via_new < costs[near_node] and is_free(new_node, near_node, map_array, margin=0):
-                    parents[near_node] = new_node
-                    costs[near_node] = cost_via_new
-                    # Note: In full RRT*, cost updates should propagate, but this is often omitted for simplicity
+        # Add the new node
+        nodes.append(new_node)
+        parents[new_node] = best_parent
+        costs[new_node] = min_cost
 
-            # Check if goal is reachable from the new_node
-            dist_to_goal = distance(new_node, goal)
-            if dist_to_goal < step_size * 1.5 and is_free(new_node, goal, map_array, margin=0):
-                cost_to_goal_via_new = costs[new_node] + dist_to_goal
-                # Update goal connection only if this path is better than any existing path to goal
-                if cost_to_goal_via_new < costs.get(goal, float('inf')):
-                    parents[goal] = new_node
-                    costs[goal] = cost_to_goal_via_new
-                    print(f"Goal potentially reached at iteration {i} with cost {cost_to_goal_via_new:.2f}")
-                    # RRT* doesn't stop early, it continues searching for better paths
+        # Rewire: Check if new_node offers a better path for near nodes
+        for k in near_indices: # Iterate using indices
+             near_node = nodes[k]
+             if near_node == best_parent: continue # Don't rewire the parent itself
+
+             cost_via_new = costs[new_node] + distance(new_node, near_node)
+             if cost_via_new < costs[near_node] and is_free(new_node, near_node, map_array, margin=0):
+                parents[near_node] = new_node
+                costs[near_node] = cost_via_new
+                # Note: Cost updates should propagate in full RRT*, but omitted here.
+
+        # Check if goal is reachable from the new_node
+        dist_to_goal = distance(new_node, goal)
+        if dist_to_goal < step_size * 1.5 and is_free(new_node, goal, map_array, margin=0):
+            cost_to_goal_via_new = costs[new_node] + dist_to_goal
+            # Update goal connection only if this path is better than any existing path to goal
+            if cost_to_goal_via_new < costs.get(goal, float('inf')):
+                parents[goal] = new_node
+                costs[goal] = cost_to_goal_via_new
+                print(f"Goal potentially reached at iteration {i} with cost {cost_to_goal_via_new:.2f}")
+                # RRT* continues searching
+
+        # --- Rebuild KDTree periodically ---
+        if i % rebuild_tree_freq == 0:
+            tree = cKDTree(nodes) # Rebuild the tree
 
         if i % 100 == 0:  # Print status every 100 iterations
+            # Update tree before printing status if it wasn't just rebuilt
+            if i % rebuild_tree_freq != 0:
+                 tree = cKDTree(nodes)
             closest_dist = min([distance(n, goal) for n in nodes]) if nodes else float('inf')
             print(f"Iteration {i}/{max_iter}, Nodes: {len(nodes)}, Closest distance to goal: {closest_dist:.2f}, Goal cost: {costs.get(goal, float('inf')):.2f}")
 
-    # --- Path Reconstruction --- 
+    # --- Path Reconstruction ---
+    # Ensure the tree is up-to-date before final checks
+    tree = cKDTree(nodes)
 
     # If we reached max iterations without finding the goal node in parents
     if goal not in parents:
@@ -406,7 +511,7 @@ def smooth_path(path, map_array, smoothing_radius=2):
     i = 0
     
     while i < len(path) - 1:
-        max_jump = min(i + 5, len(path) - 1)  # Only look ahead 5 steps
+        max_jump = len(path) - 1   # try to connect straight to the end
         connected = False
         for j in range(max_jump, i, -1):
             if is_free(path[i], path[j], map_array, margin=smoothing_radius) and path_clearance_ok(path[i], path[j], map_array, OBS_MARGIN):
@@ -432,6 +537,73 @@ def convert_paths_to_waypoints(paths):
             waypoints.append(p)
     return waypoints
 
+def visualize_map_and_path_on_display(display, map_array, path, path_color=0xFF0000, obstacle_color=0xFFFFFF, free_space_color=0x000000, obstacle_threshold=0.3):
+    """
+    Visualizes the map and the path on the robot's display device.
+
+    Args:
+        display: The robot's display device.
+        map_array: The 2D numpy array representing the map (values > threshold are obstacles).
+        path: A list of (x, y) tuples representing the path in map coordinates.
+        path_color: The color to draw the path pixels (default: red).
+        obstacle_color: The color for obstacles (default: white).
+        free_space_color: The color for free space (default: black).
+        obstacle_threshold: The value above which a map cell is considered an obstacle.
+    """
+    if display is None:
+        print("Error: Display device not provided for visualization.")
+        return
+
+    height, width = map_array.shape
+    print(f"Visualizing map ({width}x{height}) and path ({len(path)} points) on display...")
+
+    # Draw the map background
+    for y in range(height):
+        for x in range(width):
+            if map_array[y, x] > obstacle_threshold:
+                display.setColor(int(obstacle_color))
+            else:
+                display.setColor(int(free_space_color))
+            display.drawPixel(x, y)
+
+    # Draw the path
+    if path:
+        display.setColor(int(path_color))
+        for point in path:
+            x, y = point
+            # Ensure coordinates are within bounds before drawing
+            if 0 <= x < width and 0 <= y < height:
+                display.drawPixel(x, y)
+            # else:
+            #     print(f"Warning: Path point ({x}, {y}) out of bounds ({width}x{height}) for display.") # Optional warning
+
+    print("Display visualization complete.")
+
+# Random shortcut to remove zigzags from the path
+def random_shortcut(path, map_array, tries=2000):
+    import random
+    new_path = path[:]
+    for _ in range(tries):
+        if len(new_path) < 3: break
+        i, j = sorted(random.sample(range(len(new_path)), 2))
+        if j - i < 2: continue
+        if is_free(new_path[i], new_path[j], map_array, margin=OBS_MARGIN):
+            # splice out the middle
+            new_path = new_path[:i+1] + new_path[j:]
+    return new_path
+
+def prune_collinear(path, angle_tol=5.0):
+    pruned = [path[0]]
+    for a, b, c in zip(path, path[1:], path[2:]):
+        v1 = np.array(b) - np.array(a)
+        v2 = np.array(c) - np.array(b)
+        ang = np.degrees(np.arccos(np.dot(v1, v2) /
+                       (np.linalg.norm(v1)*np.linalg.norm(v2))))
+        if abs(ang - 180) > angle_tol:
+            pruned.append(tuple(b))
+    pruned.append(path[-1])
+    return pruned
+
 # Main Planner Code
 def main():
     # Start position based on actual robot's initial position
@@ -444,7 +616,7 @@ def main():
     map_array = np.load("map.npy")
     
     # Pre-inflate the obstacles in the map
-    inflated_map = inflate_map(map_array, radius=OBS_MARGIN)
+    inflated_map = inflate_map(map_array)
 
     #quickly display the inflated map
     plt.imshow(inflated_map)
@@ -466,10 +638,14 @@ def main():
         path = rrt_star(inflated_map, start, end, max_iter=5000)
         
         if path:
-            # Smooth the path to reduce zigzags
-            smoothed_path = smooth_path(path, inflated_map)
-            print(f"Path segment {i+1} found with {len(smoothed_path)} points after smoothing")
-            all_paths.append(smoothed_path)
+            # 1) greedy prune
+            smoothed = smooth_path(path, inflated_map)
+            # 2) random shortcut to knock out all the little arcs
+            smoothed = random_shortcut(smoothed, inflated_map, tries=500)
+            # 3) prune near-collinear points
+            smoothed = prune_collinear(smoothed)
+            print(f"Segment {i+1} → {len(path)}→{len(smoothed)} after greedy+srand+prune shortcut")
+            all_paths.append(smoothed)
         else:
             print(f"Failed to find path for segment {i+1} — skipping.")
             break

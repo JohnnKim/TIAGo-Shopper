@@ -1,7 +1,7 @@
 """
 This file contains the vision module for the grocery shopper.
 It contains the functions for the camera to detect objects.
-All functions are written by Mitch Siegel
+All functions are written by Mitch Siegel, assisted by Gemini 2.5 Pro.
 """
 
 
@@ -22,15 +22,9 @@ COLOR_RANGES_HSV = {
     'yellow': { #yellow cubes - Tighter Range
         'lower1': np.array([20, 140, 140]), 'upper1': np.array([35, 255, 255])
     },
-    'blue': { #shelves
-        'lower1': np.array([100, 150, 50]), 'upper1': np.array([140, 255, 255])
-    },
     'bright_green': { #green cubes
         'lower1': np.array([50, 120, 120]), 'upper1': np.array([75, 255, 255])
     },
-    'white': { #generally not used but hey just in case
-        'lower1': np.array([0, 0, 200]), 'upper1': np.array([180, 30, 255])
-    }
 }
 
 IMAGE_SCALE_FACTOR = 100
@@ -115,8 +109,7 @@ def draw_detected_objects(detected_objects, original_image):
     default_color = (0, 0, 0) # Black for unknown colors
 
     for obj in detected_objects:
-        # Use object pixel coordinates *after* scaling for drawing
-        draw_x = int(obj.x) # Assuming coordinates were already scaled before calling this
+        draw_x = int(obj.x)
         draw_y = int(obj.y)
         draw_w = int(obj.w)
         draw_h = int(obj.h)
@@ -296,9 +289,8 @@ def detect_objects_yolo(bgr_image,conf_threshold=0.5):
     model = YOLO("./ML/model.pt")
 
     try:
-        # Perform inference
-        # Consider adding device='mps' or device='cuda' if needed and available
-        results = model(bgr_image, verbose=False) # verbose=False reduces console spam
+        #TODO: Consider adding device='mps' or device='cuda' if needed and available
+        results = model(bgr_image, verbose=False) 
 
         # Process results if any detections exist
         if results and results[0].boxes is not None and len(results[0].boxes) > 0:

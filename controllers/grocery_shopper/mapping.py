@@ -32,7 +32,6 @@ def main(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lid
     # --- Get Actual Display Dimensions ---
     display_width = display.getWidth()
     display_height = display.getHeight()
-    # print(f"Display dimensions: {display_width} x {display_height}") # Keep commented unless needed
 
     # Main Loop
     while robot.step(timestep) != -1:
@@ -134,7 +133,6 @@ def main(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lid
                  display.drawPixel(map_x, map_y)
 
         # --- Process Lidar Data ---
-        first_lidar_point_processed = False
         for i, rho in enumerate(lidar_sensor_readings):
             if rho < MIN_LIDAR_DISTANCE or rho > LIDAR_SENSOR_MAX_RANGE:
                 continue
