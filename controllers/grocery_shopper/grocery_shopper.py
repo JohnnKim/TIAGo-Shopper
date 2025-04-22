@@ -9,10 +9,8 @@ from localization import main as odometry
 from mapping import main as mapping
 from vision import main as vision
 from manipulation import main as manipulation
-from planning import main as planning
 from planning import world_to_map_coords
 from planning import rrt_basic
-from planning import random_shortcut
 from planning import inflate_map
 from planning import visualize_map_and_path_on_display
 from planning import smooth_path
@@ -126,7 +124,7 @@ use_mapping = False
 use_vision = False # this might cook your PC right now
 use_manipulation = False
 use_planning = True
-use_odometry = False
+use_odometry = True
 
 # Initialize waypoint index
 waypoint_index = 0
@@ -190,24 +188,21 @@ if use_planning:
         # Check if start and goal are valid before planning
         if map_array_inflated[current_start_pixel[1], current_start_pixel[0]] != 0:
             print(f"ERROR: Start point {current_start_pixel} is inside an inflated obstacle for segment {i+1}, skipping segment.")
-            continue # Skip this segment
+            continue
         if map_array_inflated[goal_pixel[1], goal_pixel[0]] != 0:
             print(f"ERROR: Goal point {goal_pixel} is inside an inflated obstacle for segment {i+1}, skipping segment.")
-            continue # Skip this segment
+            continue
 
         # RRT* uses the inflated map for planning
-        path_segment_pixels = rrt_basic(map_array_inflated, current_start_pixel, goal_pixel)
-        path_segment_pixels = random_shortcut(path_segment_pixels, map_array_inflated)
+        path_segment_pixels = rrt_basic(map_array_inflated, current_start_pixel, goal_pixel, max_iter=3000)
+        path_segment_pixels = smooth_path(path_segment_pixels, map_array_inflated)
 
         if path_segment_pixels:
-            # Store the pixel path for visualization
             all_paths_pixels.append(path_segment_pixels)
-            # TODO: Convert path_segment_pixels to world coordinates if follow_waypoints expects world coords
-            paths.append(path_segment_pixels) # Assuming follow_waypoints uses map coords for now
-            current_start_pixel = goal_pixel # Update start for the next segment
+            paths.append(path_segment_pixels)
+            current_start_pixel = goal_pixel 
 
 
-    # -- Visualization using the display --
     # Combine all pixel paths into one list for visualization
     full_pixel_path = [point for segment in all_paths_pixels for point in segment]
 
@@ -274,6 +269,8 @@ while robot.step(timestep) != -1:
                 print("All path segments completed! Robot stopped.")
                 vL = 0 # Stop left wheel
                 vR = 0 # Stop right wheel
+
+                exit()
         
         # Follow the current path segment if it's not completed
         # Add a check to ensure path exists and waypoint_index is valid before calling follow_waypoints
