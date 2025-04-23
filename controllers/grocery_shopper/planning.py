@@ -14,7 +14,7 @@ from scipy.spatial import cKDTree
 MAP_WIDTH = 900
 MAP_HEIGHT = 483
 MAP_SCALE = 30  # pixels per meter
-OBS_MARGIN = 12
+OBS_MARGIN = 17
 
 # A* path planning method (unused, but left here for checklist purposes)
 # def path_planner(map, start, end):
@@ -93,7 +93,7 @@ def inflate_map(map_array):
     """
     # Create a circular kernel for inflation
              
-    robot_radius = int(.40 * 30)  # 0.35m radius, scaled by 30 px/m
+    robot_radius = int((0.40 + 0.15) * 30)  # 0.35m radius, scaled by 30 px/m
     kernel = np.zeros((2*robot_radius+1, 2*robot_radius+1))
     y, x = np.ogrid[-robot_radius:robot_radius+1, -robot_radius:robot_radius+1]
     mask = x**2 + y**2 <= robot_radius**2
@@ -255,7 +255,7 @@ def sample_point(map_array, goal, iteration, max_iter, goal_sample_rate=0.2, cle
             
             # With some probability, check clearance and accept if it's good
             clearance = calculate_clearance((x, y), map_array)
-            if clearance > 5:  # Prefer points with good clearance
+            if clearance > 10:  # Prefer points with good clearance
                 return (x, y)
     
     # Fallback to basic random sampling
