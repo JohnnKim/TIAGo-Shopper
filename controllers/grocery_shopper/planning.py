@@ -347,33 +347,51 @@ def rrt_basic(map_array, start, goal, max_iter=3000, step_size=15, goal_reach_th
     print("WARNING: Basic RRT reached max iterations without finding a path to the goal.")
     return [] # No path found within max_iter
 
-def smooth_path(path, map_array):
+def smooth_path(path, map_array_inflated, max_iterations=100):
     """
-    Simplify the path by removing redundant waypoints while ensuring 
-    the path remains obstacle-free.
+    Smooths a given path by attempting to shortcut segments while avoiding obstacles.
+
+    Args:
+        path: The original path as a list of (x, y) map coordinate tuples.
+        map_array_inflated: The inflated map array (0=free, >0=obstacle) used for collision checking.
+        max_iterations: The maximum number of smoothing iterations.
+
+    Returns:
+        A new list of (x, y) tuples representing the smoothed path. Returns the original path if it has less than 3 points.
     """
-    if len(path) <= 2:
-        return path
-    
-    smoothed = [path[0]]
-    i = 0
-    
-    while i < len(path) - 1:
-        max_jump = len(path) - 1   # try to connect straight to the end
-        connected = False
-        for j in range(max_jump, i, -1):
-            if path_clearance_ok(path[i], path[j], map_array, OBS_MARGIN):
-                smoothed.append(path[j])
-                i = j
-                connected = True
-                break
-        if not connected:
-            i += 1
-            if i < len(path):
-                smoothed.append(path[i])
-    
-    print(f"Smoothed path from {len(path)} to {len(smoothed)} waypoints")
-    return smoothed
+    if len(path) < 3:
+        return path # Cannot smooth a path with less than 3 points
+
+    smoothed_path = list(path) # Work on a copy
+
+    print(f"Starting path smoothing. Original points: {len(smoothed_path)}")
+
+    for iteration in range(max_iterations):
+        path_changed_this_iteration = False
+        i = 0
+        while i < len(smoothed_path) - 2:
+            p_start = smoothed_path[i]
+            p_end = smoothed_path[i+2]
+
+            # Check for collision on the direct path using the inflated map
+            if is_free(p_start, p_end, map_array_inflated, margin=0):
+                # Shortcut is possible, remove the intermediate point
+                smoothed_path.pop(i + 1)
+                path_changed_this_iteration = True
+                # Do not increment i, check the new potential shortcut from the same p_start
+            else:
+                # Shortcut not possible, move to the next point
+                i += 1
+
+        if not path_changed_this_iteration:
+            print(f"Smoothing converged after {iteration + 1} iterations.")
+            break # Path stable, no more shortcuts found
+    else: # This else clause executes if the loop finished without a break
+        print(f"WARNING: Path smoothing reached max iterations ({max_iterations}).")
+
+
+    print(f"Finished path smoothing. Smoothed points: {len(smoothed_path)}")
+    return smoothed_path
 
 def convert_paths_to_waypoints(paths):
     """

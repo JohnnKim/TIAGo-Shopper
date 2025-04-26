@@ -1,6 +1,7 @@
 """grocery controller."""
 
 # Apr 1, 2025
+# Written by Mitch Siegel, Andrew Rho, John Kim
 
 from controller import Robot
 import math
@@ -17,6 +18,7 @@ from planning import smooth_path
 from follow import follow_waypoints
 from localization import main as odometry
 from planning import visualize_path
+from localization import rotateToAngle
 
 #Initialization
 print("=== Initializing Grocery Shopper...")
@@ -73,13 +75,12 @@ gps.enable(timestep)
 compass = robot.getDevice("compass")
 compass.enable(timestep)
 
-
 # Enable LiDAR
 lidar = robot.getDevice('Hokuyo URG-04LX-UG01')
 lidar.enable(timestep)
 lidar.enablePointCloud()
 
-# We are using a GPS and compass to disentangle mapping and localization
+# We are using a GPS and compass to disentangle mapping and localization, and to prevent odometry from accumulating error
 gps = robot.getDevice("gps")
 gps.enable(timestep)
 compass = robot.getDevice("compass")
@@ -88,17 +89,9 @@ compass.enable(timestep)
 # Enable display
 display = robot.getDevice("display")
 
+# Enable keyboard
 keyboard = robot.getKeyboard()
 keyboard.enable(timestep)
-
-# # enable range finder (unused for now)
-# range_finder = None
-# try:
-#     range_finder = robot.getDevice("range-finder")
-#     range_finder.enable(timestep)
-# except:
-#     print("Range finder not found")
-
 
 # Odometry
 pose_x     = 0
@@ -121,28 +114,40 @@ gripper_status="closed"
 
 # === Toggles ===
 use_mapping = False
-use_vision = False # this might cook your PC right now
+use_vision = False
 use_manipulation = False
 use_planning = True
-use_odometry = True
+use_odometry = False
 
 # Initialize waypoint index
 waypoint_index = 0
 path_index = 0
 paths = []
 
-#harded cube waypoints
-
-All_points = [
-    (3.46242, 6.44691), #solid item(11)
-    (-3.31818, 2.61933), #solid item(8)
-    (3.41413, 2.92713),
-    #(2.5942, 2.92735)
-    # (-3.28477, 2.92921),
-    # (-2.74593, 1.16904),
-    # (0.753345,0.997871)
+#harded cube waypoints (uses odometry)
+All_points = [ # verified = I have picked up the cube from that point
+    (3.53305, 6.23893), #item(11) - verified
+    (-3.26316, 2.65703), #item(8) - verified
+    (-2.68907, 1.1591), #item(7) and item(5) - verified 
+    (0.810102, 1.21804), #item(6) - verified
+    (2.6, 2.7), #item - verified
+    (3.53022, 2.777), #item (10) - verified
+    (2.36729,-2.8), #item(3) - verified
+    (4.45738, -2.8), #item(12)
+    (-6.18925, 0) #ending point
 ]
+rotation_points = [ #90 = left, 0 = forward, -90 = right
+    90, #item(11)
+    90, #item(8)
+    -90, #item(7) and item(5)
+    -90, #item(6)
+    90, #item
+    90, #item(10)
+    -90, #item(3)
+    -90, #item(12)
+    0 #ending point
 
+]
 #ensure all points are valid
 map_array = np.load("map.npy")
 map_array_inflated = inflate_map(map_array)
@@ -193,14 +198,22 @@ if use_planning:
             print(f"ERROR: Goal point {goal_pixel} is inside an inflated obstacle for segment {i+1}, skipping segment.")
             continue
 
-        # RRT* uses the inflated map for planning
+        # RRT* uses the inflated map for planning :)
         path_segment_pixels = rrt_basic(map_array_inflated, current_start_pixel, goal_pixel, max_iter=3000)
-        path_segment_pixels = smooth_path(path_segment_pixels, map_array_inflated)
 
         if path_segment_pixels:
-            all_paths_pixels.append(path_segment_pixels)
-            paths.append(path_segment_pixels)
-            current_start_pixel = goal_pixel 
+            # Smooth the path after generating it
+            smoothed_path_segment = smooth_path(path_segment_pixels, map_array_inflated)
+            if smoothed_path_segment:
+                all_paths_pixels.append(smoothed_path_segment)
+                paths.append(smoothed_path_segment) # Use the smoothed path for execution
+                current_start_pixel = goal_pixel # Update start for next segment based on the original goal pixel
+            else:
+                # Fallback to original path if smoothing somehow failed (shouldn't happen with current logic)
+                all_paths_pixels.append(path_segment_pixels)
+                paths.append(path_segment_pixels)
+                current_start_pixel = goal_pixel
+        # If RRT failed, don't add anything and print error (handled by RRT function)
 
 
     # Combine all pixel paths into one list for visualization
@@ -219,16 +232,11 @@ if use_planning:
     # Assign the first path segment to 'path' for the follow_waypoints logic
     if paths:
         path = paths[path_index] # Start with the first path
-        waypoint_index = 0 # Ensure waypoint index is reset
+        waypoint_index = 0 # cut off the first point to avoid circling the starting point
 
 
 # Main Loop
 while robot.step(timestep) != -1:
-    # Get updated odometry
-    
-    #pose_x, pose_y, pose_theta, prev_time = odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
-
-
     if gps:
         gps_values = gps.getValues()
         pose_x = gps_values[0]
@@ -244,29 +252,29 @@ while robot.step(timestep) != -1:
     if use_vision:
         vision(robot, camera, display, keyboard, timestep, robot_parts)
 
-    if use_manipulation:
-        manipulation(robot, display, robot_parts, gripper_status, right_gripper_enc, left_gripper_enc, timestep, 0, 0, 0)
-
     if use_odometry:
         odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
 
-    # Initialize vL and vR before the planning block in case planning is skipped
-    # (Though the current logic always calls follow_waypoints if use_planning is true)
-    # vL = 0 # Example initialization if needed elsewhere
-    # vR = 0
 
     if use_planning:
-        # Check if the current path segment is completed
-        # This happens when follow_waypoints increments waypoint_index to be equal to len(path)
-        # Ensure path exists and is not empty before checking len(path)
         if path and waypoint_index >= len(path): # Check if index is at or beyond the end
             if path_index < len(paths) - 1: # Check if there are more path segments to follow
-                path_index += 1
-                waypoint_index = 0 # Reset waypoint index for the new path
-                path = paths[path_index] # Load the next path segment
                 print(f"Moving to path segment {path_index + 1}/{len(paths)}")
+                # Get updated odometry
+                # # rotate to the correct angle facing the shelf
+                x, y, theta = rotateToAngle(rotation_points[path_index], robot, compass, timestep, robot_parts, vL, vR, prev_time, pose_x, pose_y, pose_theta, AXLE_LENGTH)
+                pose_x = x #since this function updates the odometry from within, we bubble up the changes to the odometry variables
+                pose_y = y
+                pose_theta = theta
+                # give control over to user to pick up the item
+                if use_manipulation:
+                    manipulation(robot,robot_parts, timestep)
+
+                waypoint_index = 0 # Reset waypoint index for the new path
+                path_index += 1 #increment the path index to move to the next path segment
+                path = paths[path_index] # Load the next path segment
             else:
-                print("All path segments completed! Robot stopped.")
+                #print("All path segments completed! Robot stopped.")
                 vL = 0 # Stop left wheel
                 vR = 0 # Stop right wheel
 

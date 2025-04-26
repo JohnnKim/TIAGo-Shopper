@@ -61,11 +61,6 @@ def main(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lid
         pose_theta_raw = -compass_based_angle - math.pi / 2
         # Normalize final pose_theta to [-pi, pi]
         pose_theta = (pose_theta_raw + math.pi) % (2 * math.pi) - math.pi
-        # ------------------------------------------------
-
-        # --- Print the FINAL pose_theta for comparison with Webots ---
-        print(f"DEBUG_CALC: Final pose_theta = {math.degrees(pose_theta):.1f} deg")
-        # -------------------------------------------------------------
 
         # --- Convert World Pose to Map Coordinates ---
         # (This part remains unchanged)
