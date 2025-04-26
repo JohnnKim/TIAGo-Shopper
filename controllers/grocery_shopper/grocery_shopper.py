@@ -17,7 +17,6 @@ from planning import visualize_map_and_path_on_display
 from planning import smooth_path
 from follow import follow_waypoints
 from localization import main as odometry
-from planning import visualize_path
 from localization import rotateToAngle
 
 #Initialization
@@ -98,8 +97,8 @@ pose_x     = 0
 pose_y     = 0
 pose_theta = 0
 
-vL = 5
-vR = 5
+vL = 0
+vR = 0
 
 prev_time = robot.getTime()
 
@@ -114,7 +113,7 @@ gripper_status="closed"
 
 # === Toggles ===
 use_mapping = False
-use_vision = False
+use_vision = True
 use_manipulation = False
 use_planning = True
 use_odometry = False
@@ -153,8 +152,6 @@ map_array = np.load("map.npy")
 map_array_inflated = inflate_map(map_array)
 All_points = [world_to_map_coords(point[0], point[1]) for point in All_points]
 
-# display the map and all points
-visualize_map_and_path_on_display(display, map_array_inflated, All_points, path_color=0xFF0000)
 # check if all points are valid
 for point in All_points:
     if map_array_inflated[point[1], point[0]] != 0:
@@ -163,6 +160,8 @@ for point in All_points:
     else:
         print(f"Point {point} is valid")
 
+# --- Planning ---
+# this section was written by all of us, but mostly John. Mitch helped with debugging. Andrew helped with integrating the map.
 if use_planning:
     # Load the map first
     map_array = np.load("map.npy")
@@ -235,7 +234,8 @@ if use_planning:
         waypoint_index = 0 # cut off the first point to avoid circling the starting point
 
 
-# Main Loop
+# --- Main Loop ---
+# This section was written by Mitch and Andrew, with some help from John.
 while robot.step(timestep) != -1:
     if gps:
         gps_values = gps.getValues()
