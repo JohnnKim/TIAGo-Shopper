@@ -89,10 +89,9 @@ OBS_MARGIN = 17
 # Function to inflate obstacles in the map
 def inflate_map(map_array):
     """
-    Inflates obstacles in the map by a given radius to ensure safe paths for larger robots.
+    Inflates obstacles to create a configuration space (c-space).
     """
-    # Create a circular kernel for inflation
-             
+    # Create a circular kernel for inflation 
     robot_radius = int((0.40 + 0.15) * 30)  # 0.35m radius, scaled by 30 px/m
     kernel = np.zeros((2*robot_radius+1, 2*robot_radius+1))
     y, x = np.ogrid[-robot_radius:robot_radius+1, -robot_radius:robot_radius+1]
@@ -113,15 +112,20 @@ def visualize_path(path, map_array_rgb, step=1, radius=2):
     print(f"Visualizing path with {len(path)} waypoints.")
     for i in range(0, len(path), step):
         map_x, map_y = path[i]
+        # Draw a small square brush around each waypoint
         for dx in range(-radius, radius + 1):
             for dy in range(-radius, radius + 1):
                 px = map_x + dx
                 py = map_y + dy
+                # Only paint inside valid map boundaries
                 if 0 <= px < map_array_rgb.shape[1] and 0 <= py < map_array_rgb.shape[0]:
                     map_array_rgb[py, px] = [1.0, 0.0, 0.0]  # RED
     return map_array_rgb
 
-def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
+def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900, map_height=483):\
+    """
+    Converts world coordinates (meters) to map pixel coordinates.
+    """
     # Offset origin to center of the map
     map_x = int((world_x * scale_x) + map_width // 2)
     map_y = int(map_height // 2 - (world_y * scale_y))  # Y flipped
@@ -136,7 +140,9 @@ def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900,
     return map_x, map_y
 
 def map_to_world_coords(map_x, map_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
-    """Converts map pixel coordinates back to world coordinates (meters)."""
+    """
+    Converts map pixel coordinates back to world coordinates (meters).
+    """
     world_x = (map_x - map_width // 2) / scale_x
     world_y = (map_height // 2 - map_y) / scale_y  # Y flipped back
 
@@ -145,6 +151,9 @@ def map_to_world_coords(map_x, map_y, scale_x=30, scale_y=30, map_width=900, map
 
 # Bresenham's line algorithm to check if the path between two points is free of obstacles
 def bresenham(x0, y0, x1, y1):
+    """
+    Bresenham's line algorithm to enumerate points between two coordinates.
+    """
     points = []
     dx = abs(x1 - x0)
     dy = -abs(y1 - y0)
@@ -231,6 +240,7 @@ def steer(from_node, to_node, step_size):
     new_point = np.array(from_node) + step_size * direction
     return tuple(np.round(new_point).astype(int))
 
+# Used ChatGPT 4o, to try and fix obstacle collision on given path
 def sample_point(map_array, goal, iteration, max_iter, goal_sample_rate=0.2, clearance_bias=0.3):
     """
     Advanced sampling strategy:
@@ -263,7 +273,7 @@ def sample_point(map_array, goal, iteration, max_iter, goal_sample_rate=0.2, cle
         random.randint(0, map_array.shape[1] - 1),
         random.randint(0, map_array.shape[0] - 1),
     )
-
+# Used ChatGPT 4o, to try and fix obstacle collision on given path
 def adaptive_step_size(from_node, current_step, map_array, min_step=5, max_step=15):
     """
     Adjust step size based on environment complexity.
