@@ -247,7 +247,7 @@ while robot.step(timestep) != -1:
         pose_theta = math.atan2(compass_values[0], compass_values[1])
 
     if use_mapping:
-        mapping(robot, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
+        mapping(robot, robot_parts, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
 
     if use_vision:
         vision(robot, camera, display, keyboard, timestep, robot_parts)
