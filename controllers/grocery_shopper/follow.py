@@ -19,9 +19,9 @@ def follow_waypoints(path, robot_parts, vL, vR, waypoint_index, pose_theta, pose
         waypoint_index: Updated waypoint index
     """
     # Constants for the controller
-    MAX_SPEED = 7.0  # [rad/s]
-    MAP_WIDTH = 900
-    MAP_HEIGHT = 483
+    MAX_SPEED = 7.0  # Maximum motor speed [rad/s]
+    MAP_WIDTH = 900 # Map width in pixels
+    MAP_HEIGHT = 483 # Map height in pixels
     MAP_SCALE = 30  # pixels per meter
     
     # Get current position if not provided
