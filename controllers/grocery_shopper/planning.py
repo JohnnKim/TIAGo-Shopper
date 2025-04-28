@@ -120,9 +120,10 @@ def visualize_path(path, map_array_rgb, step=1, radius=2):
                 # Only paint inside valid map boundaries
                 if 0 <= px < map_array_rgb.shape[1] and 0 <= py < map_array_rgb.shape[0]:
                     map_array_rgb[py, px] = [1.0, 0.0, 0.0]  # RED
+
     return map_array_rgb
 
-def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900, map_height=483):\
+def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
     """
     Converts world coordinates (meters) to map pixel coordinates.
     """
@@ -138,6 +139,7 @@ def world_to_map_coords(world_x, world_y, scale_x=30, scale_y=30, map_width=900,
     map_y = min(max(0, map_y), map_height - 1)
 
     return map_x, map_y
+
 
 def map_to_world_coords(map_x, map_y, scale_x=30, scale_y=30, map_width=900, map_height=483):
     """
@@ -413,7 +415,7 @@ def convert_paths_to_waypoints(paths):
             waypoints.append(p)
     return waypoints
 
-def visualize_map_and_path_on_display(display, map_array, path, path_color=0xFF0000, obstacle_color=0xFFFFFF, free_space_color=0x000000, obstacle_threshold=0.3):
+def visualize_map_and_path_on_display(display, map_array, path, path_color=0xFF0000, obstacle_color=0xFFFFFF, free_space_color=0x000000, obstacle_threshold=0.3, draw_map=True, path_point_radius=1):
     """
     Visualizes the map and the path on the robot's display device.
 
@@ -425,32 +427,42 @@ def visualize_map_and_path_on_display(display, map_array, path, path_color=0xFF0
         obstacle_color: The color for obstacles (default: white).
         free_space_color: The color for free space (default: black).
         obstacle_threshold: The value above which a map cell is considered an obstacle.
+        draw_map: Boolean indicating whether to draw the map background (default: True).
+        path_point_radius: The radius for drawing path points as squares (0=pixel, 1=3x3, 2=5x5, etc.). Default is 1.
     """
     if display is None:
         print("Error: Display device not provided for visualization.")
         return
 
     height, width = map_array.shape
-    print(f"Visualizing map ({width}x{height}) and path ({len(path)} points) on display...")
+    # Adjust print message based on whether map is being drawn
+    action = "Visualizing map and path" if draw_map else "Drawing path"
+    print(f"{action} ({width}x{height} map, {len(path)} path points) on display...")
 
-    # Draw the map background
-    for y in range(height):
-        for x in range(width):
-            if map_array[y, x] > obstacle_threshold:
-                display.setColor(int(obstacle_color))
-            else:
-                display.setColor(int(free_space_color))
-            display.drawPixel(x, y)
+    # Draw the map background only if draw_map is True
+    if draw_map:
+        for y in range(height):
+            for x in range(width):
+                if map_array[y, x] > obstacle_threshold:
+                    display.setColor(int(obstacle_color))
+                else:
+                    display.setColor(int(free_space_color))
+                display.drawPixel(x, y)
 
     # Draw the path
     if path:
         display.setColor(int(path_color))
         for point in path:
             x, y = point
-            # Ensure coordinates are within bounds before drawing
-            if 0 <= x < width and 0 <= y < height:
-                display.drawPixel(x, y)
-            # else:
-            #     print(f"Warning: Path point ({x}, {y}) out of bounds ({width}x{height}) for display.") # Optional warning
+            # Draw a square around the point
+            for dy in range(-path_point_radius, path_point_radius + 1):
+                for dx in range(-path_point_radius, path_point_radius + 1):
+                    px, py = x + dx, y + dy
+                    # Ensure coordinates are within bounds before drawing
+                    if 0 <= px < width and 0 <= py < height:
+                        display.drawPixel(px, py)
+            # Original single pixel drawing (keep commented or remove)
+            # if 0 <= x < width and 0 <= y < height:
+            #     display.drawPixel(x, y)
 
     print("Display visualization complete.")

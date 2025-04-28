@@ -3,5 +3,8 @@ controllers/grocery_shopper/__pycache__/
 .DS_Store
 worlds/.grocery.wbproj
 worlds/.grocery orignal.wbproj
+worlds/.new world.wbproj
+
 controllers/grocery_shopper/path_visualized.npy
 controllers/grocery_shopper/path.npy
+controllers/grocery_shopper/ML/map_ultil.py

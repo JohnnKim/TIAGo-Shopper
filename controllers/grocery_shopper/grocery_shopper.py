@@ -112,11 +112,11 @@ map_array = np.zeros((483,900))
 gripper_status="closed"
 
 # === Toggles ===
-use_mapping = False
-use_vision = True
-use_manipulation = False
+use_mapping = False #once in mapping mode, press "a" to toggle to auto-mapping mode
+use_vision = False
+use_manipulation = True
 use_planning = True
-use_odometry = False
+use_odometry = True
 
 # Initialize waypoint index
 waypoint_index = 0
@@ -127,7 +127,7 @@ paths = []
 All_points = [ # verified = I have picked up the cube from that point
     (3.53305, 6.23893), #item(11) - verified
     (-3.26316, 2.65703), #item(8) - verified
-    (-2.68907, 1.1591), #item(7) and item(5) - verified 
+    (-2.7, 1.3), #item(7) and item(5) - verified 
     (0.810102, 1.21804), #item(6) - verified
     (2.6, 2.7), #item - verified
     (3.53022, 2.777), #item (10) - verified
@@ -197,7 +197,7 @@ if use_planning:
             print(f"ERROR: Goal point {goal_pixel} is inside an inflated obstacle for segment {i+1}, skipping segment.")
             continue
 
-        # RRT* uses the inflated map for planning :)
+        # RRT uses the inflated map for planning :)
         path_segment_pixels = rrt_basic(map_array_inflated, current_start_pixel, goal_pixel, max_iter=3000)
 
         if path_segment_pixels:
@@ -215,17 +215,34 @@ if use_planning:
         # If RRT failed, don't add anything and print error (handled by RRT function)
 
 
-    # Combine all pixel paths into one list for visualization
-    full_pixel_path = [point for segment in all_paths_pixels for point in segment]
+    # Visualize map and paths
+    # First, display the base map
+    visualize_map_and_path_on_display(display, map_array, [], path_color=0xFF0000) # Path color is ignored here
 
-    if full_pixel_path:
-        print("Visualizing map and full path on robot display...")
-        # Use the original map for visualization, not the inflated one
-        visualize_map_and_path_on_display(display, map_array, full_pixel_path, path_color=0xFF0000) # Red path
+    # Define a list of colors for the paths
+    path_colors = [
+        0xFF0000,  # Red
+        0x00FF00,  # Green
+        0x0000FF,  # Blue
+        0xFFFF00,  # Yellow
+        0xFF00FF,  # Magenta
+        0x00FFFF,  # Cyan
+        0xFFA500,  # Orange
+        0x800080,  # Purple
+    ]
+
+    if all_paths_pixels:
+        print("Visualizing map and path segments on robot display...")
+        for i, segment in enumerate(all_paths_pixels):
+            color = path_colors[i % len(path_colors)] # Cycle through colors
+            # Call visualize again for each segment, drawing it over the map
+            # NOTE: This assumes visualize_map_and_path_on_display draws the path additively
+            # If it redraws the whole map, this approach needs modification.
+            # Let's assume it draws the path on top for now.
+            visualize_map_and_path_on_display(display, map_array, segment, path_color=color, draw_map=False)
     else:
         print("No path generated, visualizing map only.")
-        # Still display the map even if no path was found
-        visualize_map_and_path_on_display(display, map_array, [], path_color=0xFF0000)
+        # Map is already drawn above, nothing more needed here.
 
 
     # Assign the first path segment to 'path' for the follow_waypoints logic
@@ -250,6 +267,7 @@ while robot.step(timestep) != -1:
         mapping(robot, robot_parts, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
 
     if use_vision:
+        vL, vR = 3,3
         vision(robot, camera, display, keyboard, timestep, robot_parts)
 
     if use_odometry:

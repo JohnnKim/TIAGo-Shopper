@@ -125,7 +125,7 @@ def draw_detected_objects(detected_objects, original_image):
 
         # Put text for center pixel coordinates and confidence
         info_text1 = f"({draw_cx},{draw_cy},{obj.confidence:.2f})"
-        cv2.putText(drawing_image, info_text1, (draw_x, draw_y - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.3, draw_color, 1)
+        cv2.putText(drawing_image, info_text1, (draw_x, draw_y - 15), cv2.FONT_HERSHEY_SIMPLEX, .7, draw_color, 1)
 
     return drawing_image
 
@@ -270,7 +270,7 @@ def main(robot, camera, display, keyboard, timestep, robot_parts):
     all_detected_objects = []
 
     if use_ml:
-        if frame_count % 60 == 0: #if we need to skip frames, we can do so here
+        if frame_count % 1 == 0: #if we need to skip frames, we can do so here
             detected_objects, printed_image = detect_objects_yolo(bgr_image_orig)
             all_detected_objects = detected_objects
             display_image = draw_detected_objects(all_detected_objects, bgr_image_orig)
