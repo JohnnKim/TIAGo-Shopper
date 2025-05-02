@@ -112,8 +112,9 @@ map_array = np.zeros((483,900))
 gripper_status="closed"
 
 # === Toggles ===
+# Use this to enable/disable different parts of the robot
 use_mapping = False #once in mapping mode, press "a" to toggle to auto-mapping mode
-use_vision = False
+use_vision = True
 use_manipulation = True
 use_planning = True
 use_odometry = True
@@ -132,7 +133,8 @@ All_points = [ # verified = I have picked up the cube from that point
     (2.6, 2.7), #item - verified
     (3.53022, 2.777), #item (10) - verified
     (2.36729,-2.8), #item(3) - verified
-    (4.45738, -2.8), #item(12)
+    (4.45738, -2.8), #item(12) - verified
+    (-1.33225, -5.11096), #item(2) - verified
     (-6.18925, 0) #ending point
 ]
 rotation_points = [ #90 = left, 0 = forward, -90 = right
@@ -144,6 +146,7 @@ rotation_points = [ #90 = left, 0 = forward, -90 = right
     90, #item(10)
     -90, #item(3)
     -90, #item(12)
+    90, #item(2)
     0 #ending point
 
 ]
@@ -161,7 +164,6 @@ for point in All_points:
         print(f"Point {point} is valid")
 
 # --- Planning ---
-# this section was written by all of us, but mostly John. Mitch helped with debugging. Andrew helped with integrating the map.
 if use_planning:
     # Load the map first
     map_array = np.load("map.npy")
@@ -252,7 +254,6 @@ if use_planning:
 
 
 # --- Main Loop ---
-# This section was written by Mitch and Andrew, with some help from John.
 while robot.step(timestep) != -1:
     if gps:
         gps_values = gps.getValues()
@@ -267,13 +268,13 @@ while robot.step(timestep) != -1:
         mapping(robot, robot_parts, keyboard, lidar, gps, compass, display, map_array, timestep, lidar_sensor_readings, lidar_offsets, vL, vR)
 
     if use_vision:
-        vL, vR = 3,3
+        # vL, vR = 3,3 # uncomment this to keep the robot moving in a forward direction to test vision
         vision(robot, camera, display, keyboard, timestep, robot_parts)
 
     if use_odometry:
         odometry(robot, compass, AXLE_LENGTH, gps, display, vL, vR, prev_time, pose_x, pose_y, pose_theta)
 
-
+    # navigation / path following. Requires use_planning to be true
     if use_planning:
         if path and waypoint_index >= len(path): # Check if index is at or beyond the end
             if path_index < len(paths) - 1: # Check if there are more path segments to follow
@@ -298,14 +299,12 @@ while robot.step(timestep) != -1:
 
                 exit()
         
-        # Follow the current path segment if it's not completed
         # Add a check to ensure path exists and waypoint_index is valid before calling follow_waypoints
         if path and waypoint_index < len(path):
             vL, vR, waypoint_index = follow_waypoints(path, robot_parts, vL, vR, waypoint_index, pose_theta, pose_x, pose_y, gps)
         elif not path and not (path_index < len(paths) - 1):
             # This case handles when the last path is completed and vL, vR are already set to 0
             pass # Already stopped, do nothing
-        # Consider adding an else case here if needed, e.g., if path is empty initially
 
 
     # Set wheel speeds based on the outcome of the planning/following logic

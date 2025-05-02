@@ -49,8 +49,13 @@ def main(robot, robot_parts, keyboard, lidar, gps, compass, display, map_array, 
 
         north_x = compass_values[0]
         north_z = compass_values[1]
+
+        # Calculate compass-based angle
         compass_based_angle_raw = math.atan2(-north_x, north_z) - math.pi / 2
+        # Normalize to -pi to pi
         compass_based_angle = (compass_based_angle_raw + math.pi) % (2 * math.pi) - math.pi
+
+        # Calculate pose theta
         pose_theta_raw = -compass_based_angle - math.pi / 2
         pose_theta = (pose_theta_raw + math.pi) % (2 * math.pi) - math.pi
 

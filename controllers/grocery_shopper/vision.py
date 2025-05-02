@@ -270,7 +270,7 @@ def main(robot, camera, display, keyboard, timestep, robot_parts):
     all_detected_objects = []
 
     if use_ml:
-        if frame_count % 1 == 0: #if we need to skip frames, we can do so here
+        if frame_count % 30 == 0: #if we need to skip frames, we can do so here
             detected_objects, printed_image = detect_objects_yolo(bgr_image_orig)
             all_detected_objects = detected_objects
             display_image = draw_detected_objects(all_detected_objects, bgr_image_orig)
@@ -297,10 +297,10 @@ def detect_objects_yolo(bgr_image,conf_threshold=0.5):
     annotated_image = bgr_image.copy() # Start with a copy of the original
 
     # Load the YOLO model
-    model = YOLO("./ML/model.pt")
+    model = YOLO("model.pt") #Model Path, changed to root for submission
 
     try:
-        #TODO: Consider adding device='mps' or device='cuda' if needed and available
+        #device='mps' or device='cuda'can be used to speed up the detection (MPS seems slower than CPU)
         results = model(bgr_image, verbose=False)
 
         # Process results if any detections exist
